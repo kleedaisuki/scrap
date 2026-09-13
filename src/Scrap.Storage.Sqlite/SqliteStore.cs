@@ -8,8 +8,8 @@ namespace Scrap.Storage.Sqlite;
 /// Implements scrap's SQLite persistence boundary with short ADO.NET transactions. Each operation owns its connection and exposes neither connections nor rows.
 /// </summary>
 /// <remarks>
-/// 调用 CRUD 前必须执行 <see cref="Initialize"/>。set 回调在 write transaction 外执行；rename callback 重载只允许同步内存 AEAD，长操作应使用 staged 重载。<br/>
-/// Call <see cref="Initialize"/> before CRUD. Set callbacks run outside write transactions; rename callback overloads permit only synchronous in-memory AEAD, while long work should use staged overloads.
+/// 调用 CRUD 前必须执行 <see cref="Initialize"/>。set 与 scope-rename 回调在 write transaction 外执行；单 record rename callback 只允许同步内存 AEAD。<br/>
+/// Call <see cref="Initialize"/> before CRUD. Set and scope-rename callbacks run outside write transactions; the single-record rename callback permits only synchronous in-memory AEAD.
 /// </remarks>
 public sealed class SqliteStore
 {
@@ -549,8 +549,8 @@ public sealed class SqliteStore
             expectedUpdatedAt);
 
     /// <summary>
-    /// 原子重命名 scope 并全量重加密；任一回调或 revision 检查失败会回滚全部变更。<br/>
-    /// Atomically renames a scope and re-encrypts every record; any callback or revision failure rolls back the entire change.
+    /// 流式重加密至 connection-local TEMP ciphertext 表，再以短事务原子切换 scope；不会聚合两份托管 ciphertext。<br/>
+    /// Streams re-encryption into a connection-local TEMP ciphertext table, then atomically swaps the scope in a short transaction without aggregating two managed ciphertext copies.
     /// </summary>
     public ScopeRenameResult RenameScope(
         string oldName,
@@ -562,44 +562,37 @@ public sealed class SqliteStore
         ValidateName(newName, nameof(newName));
         ArgumentNullException.ThrowIfNull(reencrypt);
         using var connection = OpenConnection();
-        using var transaction = connection.BeginTransaction(deferred: false);
-        var source = FindScope(connection, transaction, oldName) ?? throw new StorageNotFoundException(StorageEntityKind.Scope, oldName);
+        var source = FindScope(connection, transaction: null, oldName)
+            ?? throw new StorageNotFoundException(StorageEntityKind.Scope, oldName);
         if (string.Equals(oldName, newName, StringComparison.Ordinal))
         {
-            transaction.Commit();
             return new ScopeRenameResult(source, 0);
         }
 
-        if (FindScope(connection, transaction, newName) is not null)
+        if (FindScope(connection, transaction: null, newName) is not null)
         {
             throw new StorageConflictException(StorageConflictKind.ScopeExists, $"Scope already exists: {newName}");
         }
 
-        var records = ReadRecords(connection, transaction, source.Id, oldName);
-        var replacements = new List<(StoredRecord Record, ProtectedValue Value)>(records.Count);
-        foreach (var record in records)
+        CreateScopeRenameStage(connection);
+        try
         {
-            replacements.Add((record, ValidateProtectedValue(reencrypt(record, record.Identity with { ScopeName = newName }))));
-        }
+            var count = 0;
+            string? afterId = null;
+            while (ReadNextRecord(connection, source.Id, oldName, afterId) is { } record)
+            {
+                var value = ValidateProtectedValue(reencrypt(record, record.Identity with { ScopeName = newName }));
+                StageScopeRecord(connection, record, value);
+                afterId = record.Identity.RecordId;
+                count++;
+            }
 
-        var timestamp = NormalizeTimestamp(now);
-        using (var command = connection.CreateCommand())
+            return CommitStagedScopeRename(connection, source, oldName, newName, count, NormalizeTimestamp(now));
+        }
+        finally
         {
-            command.Transaction = transaction;
-            command.CommandText = "UPDATE scopes SET name = $name, updated_at = $updatedAt WHERE id = $id;";
-            command.Parameters.AddWithValue("$name", newName);
-            command.Parameters.AddWithValue("$updatedAt", FormatTimestamp(timestamp));
-            command.Parameters.AddWithValue("$id", source.Id);
-            command.ExecuteNonQuery();
+            DropScopeRenameStage(connection);
         }
-
-        foreach (var replacement in replacements)
-        {
-            UpdateRecordValue(connection, transaction, replacement.Record, replacement.Value, timestamp);
-        }
-
-        transaction.Commit();
-        return new ScopeRenameResult(new StoredScope(source.Id, newName, source.CreatedAt, timestamp), replacements.Count);
     }
 
     /// <summary>
@@ -920,6 +913,152 @@ public sealed class SqliteStore
         }
 
         return records;
+    }
+
+    /// <summary>创建 connection-local ciphertext staging 表；其中从不写入 plaintext。 / Creates a connection-local ciphertext staging table that never stores plaintext.</summary>
+    private static void CreateScopeRenameStage(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            DROP TABLE IF EXISTS temp.scope_rename_stage;
+            CREATE TEMP TABLE scope_rename_stage (
+                record_id        TEXT PRIMARY KEY,
+                expected_revision INTEGER NOT NULL,
+                value_ciphertext BLOB NOT NULL,
+                nonce            BLOB NOT NULL,
+                crypto_version   INTEGER NOT NULL
+            ) WITHOUT ROWID;
+            """;
+        command.ExecuteNonQuery();
+    }
+
+    /// <summary>按永久 ID 流式读取一行，避免同时保留整 scope 的旧密文。 / Reads one row by permanent-ID keyset, avoiding retention of all old ciphertext.</summary>
+    private static StoredRecord? ReadNextRecord(SqliteConnection connection, long scopeId, string scopeName, string? afterId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, key, value_ciphertext, nonce, crypto_version, presentation, revision, created_at, updated_at
+            FROM records
+            WHERE scope_id = $scopeId
+              AND ($afterId IS NULL OR id COLLATE BINARY > $afterId COLLATE BINARY)
+            ORDER BY id COLLATE BINARY
+            LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("$scopeId", scopeId);
+        command.Parameters.AddWithValue("$afterId", (object?)afterId ?? DBNull.Value);
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadRecord(reader, scopeId, scopeName) : null;
+    }
+
+    /// <summary>把单条 replacement 写入 TEMP 表后即可释放其托管 buffer。 / Writes one replacement to TEMP so its managed buffer can be released.</summary>
+    private static void StageScopeRecord(SqliteConnection connection, StoredRecord record, ProtectedValue value)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO temp.scope_rename_stage(
+                record_id, expected_revision, value_ciphertext, nonce, crypto_version)
+            VALUES ($id, $revision, $ciphertext, $nonce, $cryptoVersion);
+            """;
+        command.Parameters.AddWithValue("$id", record.Identity.RecordId);
+        command.Parameters.AddWithValue("$revision", record.Revision);
+        AddProtectedValueParameters(command, value);
+        command.ExecuteNonQuery();
+    }
+
+    /// <summary>校验 TEMP snapshot 并在一个短事务中同时切换名称和全部密文。 / Validates the TEMP snapshot and swaps the name and all ciphertext in one short transaction.</summary>
+    private static ScopeRenameResult CommitStagedScopeRename(
+        SqliteConnection connection,
+        StoredScope preparedScope,
+        string oldName,
+        string newName,
+        int stagedCount,
+        DateTimeOffset timestamp)
+    {
+        using var transaction = connection.BeginTransaction(deferred: false);
+        var currentScope = FindScope(connection, transaction, oldName)
+            ?? throw new StorageConflictException(StorageConflictKind.Concurrency, "Scope changed while rename ciphertext was staged.");
+        if (currentScope.Id != preparedScope.Id)
+        {
+            throw new StorageConflictException(StorageConflictKind.Concurrency, "Scope was recreated while rename ciphertext was staged.");
+        }
+
+        if (FindScope(connection, transaction, newName) is not null)
+        {
+            throw new StorageConflictException(StorageConflictKind.ScopeExists, $"Scope already exists: {newName}");
+        }
+
+        ValidateScopeRenameStage(connection, transaction, preparedScope.Id, stagedCount);
+        using (var rename = connection.CreateCommand())
+        {
+            rename.Transaction = transaction;
+            rename.CommandText = "UPDATE scopes SET name = $name, updated_at = $updatedAt WHERE id = $id;";
+            rename.Parameters.AddWithValue("$name", newName);
+            rename.Parameters.AddWithValue("$updatedAt", FormatTimestamp(timestamp));
+            rename.Parameters.AddWithValue("$id", preparedScope.Id);
+            rename.ExecuteNonQuery();
+        }
+
+        using (var update = connection.CreateCommand())
+        {
+            update.Transaction = transaction;
+            update.CommandText = """
+                UPDATE records
+                SET value_ciphertext = (
+                        SELECT value_ciphertext FROM temp.scope_rename_stage stage WHERE stage.record_id = records.id),
+                    nonce = (SELECT nonce FROM temp.scope_rename_stage stage WHERE stage.record_id = records.id),
+                    crypto_version = (
+                        SELECT crypto_version FROM temp.scope_rename_stage stage WHERE stage.record_id = records.id),
+                    revision = revision + 1,
+                    updated_at = $updatedAt
+                WHERE scope_id = $scopeId;
+                """;
+            update.Parameters.AddWithValue("$updatedAt", FormatTimestamp(timestamp));
+            update.Parameters.AddWithValue("$scopeId", preparedScope.Id);
+            if (update.ExecuteNonQuery() != stagedCount)
+            {
+                throw new StorageConflictException(StorageConflictKind.Concurrency, "Scope contents changed during rename commit.");
+            }
+        }
+
+        transaction.Commit();
+        return new ScopeRenameResult(
+            new StoredScope(preparedScope.Id, newName, preparedScope.CreatedAt, timestamp),
+            stagedCount);
+    }
+
+    /// <summary>验证主表每行在 TEMP 中有相同 revision 且数量完全相等。 / Verifies every main-table row has an equal-revision TEMP row and counts match exactly.</summary>
+    private static void ValidateScopeRenameStage(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        long scopeId,
+        int stagedCount)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT
+                (SELECT COUNT(*) FROM records WHERE scope_id = $scopeId),
+                EXISTS(
+                    SELECT 1
+                    FROM records current
+                    LEFT JOIN temp.scope_rename_stage stage ON stage.record_id = current.id
+                    WHERE current.scope_id = $scopeId
+                      AND (stage.record_id IS NULL OR stage.expected_revision <> current.revision));
+            """;
+        command.Parameters.AddWithValue("$scopeId", scopeId);
+        using var reader = command.ExecuteReader();
+        if (!reader.Read() || reader.GetInt64(0) != stagedCount || reader.GetInt64(1) != 0)
+        {
+            throw new StorageConflictException(StorageConflictKind.Concurrency, "Scope contents changed while rename ciphertext was staged.");
+        }
+    }
+
+    /// <summary>清除 pooled connection 上的 TEMP staging 表。 / Removes the TEMP staging table from a potentially pooled connection.</summary>
+    private static void DropScopeRenameStage(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "DROP TABLE IF EXISTS temp.scope_rename_stage;";
+        command.ExecuteNonQuery();
     }
 
     private static StoredRecord ReadRecord(SqliteDataReader reader, long scopeId, string scopeName)

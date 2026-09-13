@@ -308,6 +308,69 @@ public sealed class SqliteStoreTests
     }
 
     [Fact]
+    public void ScopeRenameStreamsLargeBatchWithoutHoldingMainWriteLockDuringEncryption()
+    {
+        using var database = TestDatabase.Create();
+        database.Store.CreateScope("old");
+        const int recordCount = 256;
+        for (var index = 0; index < recordCount; index++)
+        {
+            var key = $"key-{index:D4}";
+            database.Store.SetRecord("old", key, 0, _ => Protected(key));
+        }
+
+        var callbackCount = 0;
+        var competingWriterAcquired = false;
+        var result = database.Store.RenameScope("old", "new", (_, identity) =>
+        {
+            if (callbackCount == 0)
+            {
+                using var connection = database.OpenRawConnection();
+                using var transaction = connection.BeginTransaction(deferred: false);
+                competingWriterAcquired = true;
+                transaction.Rollback();
+            }
+
+            callbackCount++;
+            return Protected($"renamed-{identity.Key}");
+        });
+
+        Assert.True(competingWriterAcquired);
+        Assert.Equal(recordCount, callbackCount);
+        Assert.Equal(recordCount, result.ReencryptedRecordCount);
+        Assert.All(database.Store.ListAllRecordMetadata("new"), record => Assert.Equal(2, record.Revision));
+    }
+
+    [Fact]
+    public void ScopeRenameMidStreamFailureDropsStageAndLeavesMainDatabaseUnchanged()
+    {
+        using var database = TestDatabase.Create();
+        database.Store.CreateScope("old");
+        const int recordCount = 100;
+        for (var index = 0; index < recordCount; index++)
+        {
+            var key = $"key-{index:D4}";
+            database.Store.SetRecord("old", key, 0, _ => Protected(key));
+        }
+
+        var callbackCount = 0;
+        Assert.Throws<InvalidOperationException>(() => database.Store.RenameScope("old", "new", (_, identity) =>
+        {
+            callbackCount++;
+            return callbackCount == 51
+                ? throw new InvalidOperationException("synthetic mid-stream crypto failure")
+                : Protected($"renamed-{identity.Key}");
+        }));
+
+        Assert.Equal(51, callbackCount);
+        Assert.NotNull(database.Store.GetScope("old"));
+        Assert.Null(database.Store.GetScope("new"));
+        var unchanged = database.Store.ListAllRecordMetadata("old");
+        Assert.Equal(recordCount, unchanged.Count);
+        Assert.All(unchanged, record => Assert.Equal(1, record.Revision));
+    }
+
+    [Fact]
     public void StagedScopeRenameRejectsAStaleSnapshot()
     {
         using var database = TestDatabase.Create();
