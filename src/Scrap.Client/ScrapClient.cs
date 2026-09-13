@@ -130,16 +130,31 @@ public sealed class ScrapClient : IAsyncDisposable
     /// <summary>删除 scope。 / Deletes a scope.</summary>
     /// <param name="name">精确 scope 名称。 / Exact scope name.</param>
     /// <param name="recursive">是否明确允许级联删除 record。 / Whether cascading record deletion is explicitly allowed.</param>
+    /// <param name="expectedRecordCount">递归删除的可选事务前置条件。 / Optional transactional precondition for recursive deletion.</param>
     /// <param name="cancellationToken">取消请求的标记。 / Token that cancels the request.</param>
     /// <returns>删除结果及 record 数量。 / The deletion result and record count.</returns>
     public Task<ScopeDeleteResult> DeleteScopeAsync(
         string name,
         bool recursive = false,
+        int? expectedRecordCount = null,
         CancellationToken cancellationToken = default) =>
         SendAsync<ScopeDeleteParams, ScopeDeleteResult>(
             ProtocolMethods.ScopeDelete,
-            new(name, recursive),
+            new(name, recursive, expectedRecordCount),
             cancellationToken);
+
+    /// <summary>
+    /// 使用旧的位置参数顺序删除 scope。 / Deletes a scope using the original positional-argument order.
+    /// </summary>
+    /// <param name="name">精确 scope 名称。 / Exact scope name.</param>
+    /// <param name="recursive">是否明确允许级联删除 record。 / Whether cascading record deletion is explicitly allowed.</param>
+    /// <param name="cancellationToken">取消请求的标记。 / Token that cancels the request.</param>
+    /// <returns>删除结果及 record 数量。 / The deletion result and record count.</returns>
+    public Task<ScopeDeleteResult> DeleteScopeAsync(
+        string name,
+        bool recursive,
+        CancellationToken cancellationToken) =>
+        DeleteScopeAsync(name, recursive, expectedRecordCount: null, cancellationToken);
 
     /// <summary>精确读取包含 value 的 record。 / Gets an exact record including its value.</summary>
     /// <param name="scope">精确 scope 名称。 / Exact scope name.</param>
