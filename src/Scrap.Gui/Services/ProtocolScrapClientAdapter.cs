@@ -237,6 +237,13 @@ internal sealed class ProtocolScrapClientAdapter : IScrapClient
             await client.PingAsync(cancellationToken);
             return client;
         }
+        catch (OperationCanceledException exception)
+        {
+            throw new ScrapClientException(
+                ScrapClientErrorKind.DaemonUnavailable,
+                "Timed out while preparing the daemon connection; no mutation was sent.",
+                exception);
+        }
         catch (Exception exception)
         {
             throw Map(exception, mutation: false);

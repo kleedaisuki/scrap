@@ -18,6 +18,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private static readonly TimeSpan DefaultDebounce = TimeSpan.FromMilliseconds(220);
     private static readonly TimeSpan DefaultRevealDuration = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan DefaultClipboardDuration = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan DefaultMutationDeadline = TimeSpan.FromSeconds(60);
 
     private readonly IScrapClient _client;
     private readonly IClipboardService _clipboard;
@@ -25,6 +26,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private readonly TimeSpan _debounce;
     private readonly TimeSpan _revealDuration;
     private readonly TimeSpan _clipboardDuration;
+    private readonly TimeSpan _mutationDeadline;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly SemaphoreSlim _mutationLifetimeGate = new(1, 1);
     private readonly SemaphoreSlim _clipboardLifetimeGate = new(1, 1);
@@ -81,13 +83,15 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     /// <param name="debounce">搜索 debounce；测试可注入零时长。Search debounce; tests may inject zero.</param>
     /// <param name="revealDuration">遮罩值显示时长。Duration for revealing a masked value.</param>
     /// <param name="clipboardDuration">遮罩值的剪贴板保留时长。Clipboard lifetime for a masked value.</param>
+    /// <param name="mutationDeadline">单次 mutation 的最长等待时间；关闭窗口不会缩短它。Maximum wait for one mutation; closing the window does not shorten it.</param>
     public MainWindowViewModel(
         IScrapClient client,
         IClipboardService clipboard,
         TimeProvider? timeProvider = null,
         TimeSpan? debounce = null,
         TimeSpan? revealDuration = null,
-        TimeSpan? clipboardDuration = null)
+        TimeSpan? clipboardDuration = null,
+        TimeSpan? mutationDeadline = null)
     {
         _client = client;
         _clipboard = clipboard;
@@ -95,6 +99,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         _debounce = debounce ?? DefaultDebounce;
         _revealDuration = revealDuration ?? DefaultRevealDuration;
         _clipboardDuration = clipboardDuration ?? DefaultClipboardDuration;
+        _mutationDeadline = mutationDeadline ?? DefaultMutationDeadline;
 
         RetryCommand = new AsyncRelayCommand(LoadScopesAsync, () => !IsLoadingScopes && !IsBusy);
         OpenCreateScopeCommand = new RelayCommand(OpenCreateScope, () => !IsBusy && !IsLoadingScopes && !HasOpenModal);
@@ -906,15 +911,16 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
         await _mutationLifetimeGate.WaitAsync(CancellationToken.None);
         IsBusy = true;
+        using var mutationCancellation = new CancellationTokenSource(_mutationDeadline, _timeProvider);
         try
         {
             if (isRename)
             {
-                await _client.RenameScopeAsync(originalName!, newName, CancellationToken.None);
+                await _client.RenameScopeAsync(originalName!, newName, mutationCancellation.Token);
             }
             else
             {
-                await _client.CreateScopeAsync(newName, CancellationToken.None);
+                await _client.CreateScopeAsync(newName, mutationCancellation.Token);
             }
 
             CloseModals();
@@ -944,6 +950,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
         await _mutationLifetimeGate.WaitAsync(CancellationToken.None);
         IsBusy = true;
+        using var mutationCancellation = new CancellationTokenSource(_mutationDeadline, _timeProvider);
         try
         {
             bool recursive = scope.RecordCount > 0;
@@ -951,21 +958,22 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
                 scope.Name,
                 recursive,
                 recursive ? scope.RecordCount : null,
-                CancellationToken.None);
+                mutationCancellation.Token);
             CloseModals();
             await LoadScopesAsync();
             ShowToast("Scope 已删除 / Scope deleted");
         }
         catch (Exception exception)
         {
-            SetError(exception);
-            if (exception is ScrapClientException { Kind: ScrapClientErrorKind.Conflict })
+            Exception mutationError = NormalizeMutationError(exception);
+            SetError(mutationError);
+            if (mutationError is ScrapClientException { Kind: ScrapClientErrorKind.Conflict })
             {
                 CloseModals();
                 ErrorMessage = "Scope 内容在确认后发生变化，未执行删除。请重新打开删除确认并核对最新数量。 / " +
                     "The scope changed after confirmation, so nothing was deleted. Reopen deletion and review the latest count.";
             }
-            else if (exception is ScrapClientException { Kind: ScrapClientErrorKind.OutcomeUnknown })
+            else if (mutationError is ScrapClientException { Kind: ScrapClientErrorKind.OutcomeUnknown })
             {
                 CloseModals();
             }
@@ -985,6 +993,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
 
         CloseModals();
+        ClearError();
         _isEditingRecord = false;
         _recordEditorScope = SelectedScope.Name;
         _recordEditorOriginal = null;
@@ -1006,6 +1015,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
 
         CloseModals();
+        ClearError();
         _isEditingRecord = true;
         _recordEditorScope = record.Scope;
         _recordEditorOriginal = record;
@@ -1048,6 +1058,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         string key = EditorKey;
         await _mutationLifetimeGate.WaitAsync(CancellationToken.None);
         IsBusy = true;
+        using var mutationCancellation = new CancellationTokenSource(_mutationDeadline, _timeProvider);
         try
         {
             var request = new SaveRecordRequest(
@@ -1056,8 +1067,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
                 EditorValue,
                 EditorIsMasked ? RecordPresentation.Masked : RecordPresentation.Plain,
                 isEdit ? original?.Key : null,
-                isEdit ? original?.Revision : null);
-            await _client.SaveRecordAsync(request, CancellationToken.None);
+                isEdit ? original?.Revision : 0);
+            await _client.SaveRecordAsync(request, mutationCancellation.Token);
             CloseModals();
             await ScheduleSearchAsync(immediate: true);
             SelectedCandidate = Candidates.FirstOrDefault(candidate => string.Equals(candidate.Key, key, StringComparison.Ordinal));
@@ -1067,7 +1078,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
         catch (Exception exception)
         {
-            HandleMutationError(exception);
+            HandleRecordSaveError(exception, isEdit);
         }
         finally
         {
@@ -1087,9 +1098,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
         await _mutationLifetimeGate.WaitAsync(CancellationToken.None);
         IsBusy = true;
+        using var mutationCancellation = new CancellationTokenSource(_mutationDeadline, _timeProvider);
         try
         {
-            await _client.DeleteRecordAsync(record.Scope, record.Key, record.Revision, CancellationToken.None);
+            await _client.DeleteRecordAsync(record.Scope, record.Key, record.Revision, mutationCancellation.Token);
             CloseModals();
             SelectedCandidate = null;
             await ScheduleSearchAsync(immediate: true);
@@ -1159,23 +1171,37 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
         try
         {
-            await _clipboard.SetTextAsync(record.Value, _lifetime.Token);
-            ClearError();
-            ShowToast("已复制 / Copied");
-
+            string? previouslyOwnedValue = _ownedMaskedClipboardValue;
             _clipboardCancellation?.Cancel();
             _clipboardCancellation?.Dispose();
-            _clipboardCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+            _clipboardCancellation = null;
             long generation = Interlocked.Increment(ref _clipboardGeneration);
+
+            try
+            {
+                await _clipboard.SetTextAsync(record.Value, _lifetime.Token);
+            }
+            catch
+            {
+                if (previouslyOwnedValue is not null)
+                {
+                    ScheduleClipboardCleanup(previouslyOwnedValue, generation);
+                }
+
+                throw;
+            }
+
             if (record.Presentation == RecordPresentation.Masked)
             {
-                _ownedMaskedClipboardValue = record.Value;
-                _ = ClearClipboardIfUnchangedAsync(record.Value, generation, _clipboardCancellation.Token);
+                ScheduleClipboardCleanup(record.Value, generation);
             }
             else
             {
                 _ownedMaskedClipboardValue = null;
             }
+
+            ClearError();
+            ShowToast("已复制 / Copied");
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
@@ -1201,10 +1227,25 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         try
         {
             await Task.Delay(_clipboardDuration, _timeProvider, cancellationToken);
-            string? current = await _clipboard.GetTextAsync(cancellationToken);
-            if (string.Equals(current, copiedValue, StringComparison.Ordinal))
+            await _clipboardLifetimeGate.WaitAsync(cancellationToken);
+            try
             {
-                await _clipboard.ClearAsync(cancellationToken);
+                if (generation != Volatile.Read(ref _clipboardGeneration))
+                {
+                    return;
+                }
+
+                string? current = await _clipboard.GetTextAsync(cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (generation == Volatile.Read(ref _clipboardGeneration) &&
+                    string.Equals(current, copiedValue, StringComparison.Ordinal))
+                {
+                    await _clipboard.ClearAsync(cancellationToken);
+                }
+            }
+            finally
+            {
+                _clipboardLifetimeGate.Release();
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1217,11 +1258,19 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
         finally
         {
-            if (generation == Volatile.Read(ref _clipboardGeneration))
+            if (!cancellationToken.IsCancellationRequested &&
+                generation == Volatile.Read(ref _clipboardGeneration))
             {
                 _ownedMaskedClipboardValue = null;
             }
         }
+    }
+
+    private void ScheduleClipboardCleanup(string copiedValue, long generation)
+    {
+        _ownedMaskedClipboardValue = copiedValue;
+        _clipboardCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        _ = ClearClipboardIfUnchangedAsync(copiedValue, generation, _clipboardCancellation.Token);
     }
 
     private async Task ClearOwnedClipboardOnShutdownAsync(string? copiedValue)
@@ -1305,12 +1354,36 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     private void HandleMutationError(Exception exception)
     {
-        SetError(exception);
-        if (exception is ScrapClientException { Kind: ScrapClientErrorKind.OutcomeUnknown })
+        Exception mutationError = NormalizeMutationError(exception);
+        SetError(mutationError);
+        if (mutationError is ScrapClientException { Kind: ScrapClientErrorKind.OutcomeUnknown })
         {
             CloseModals();
         }
     }
+
+    private void HandleRecordSaveError(Exception exception, bool isEdit)
+    {
+        Exception mutationError = NormalizeMutationError(exception);
+        SetError(mutationError);
+        if (mutationError is ScrapClientException { Kind: ScrapClientErrorKind.Conflict })
+        {
+            ErrorMessage = isEdit
+                ? "记录已被其他 client 修改。编辑内容仍保留；请刷新后重新核对。 / The record changed in another client. Your draft is preserved; refresh and review it."
+                : "该 key 已存在，未覆盖原记录。请使用其他 key，或取消后刷新。 / That key already exists; the record was not overwritten. Choose another key or cancel and refresh.";
+        }
+        else if (mutationError is ScrapClientException { Kind: ScrapClientErrorKind.OutcomeUnknown })
+        {
+            CloseModals();
+        }
+    }
+
+    private static Exception NormalizeMutationError(Exception exception) => exception is OperationCanceledException
+        ? new ScrapClientException(
+            ScrapClientErrorKind.OutcomeUnknown,
+            "等待 mutation 完成已超时，最终结果未知。请刷新核对，不要盲目重试。 / The mutation timed out and its final outcome is unknown. Refresh to verify before retrying.",
+            exception)
+        : exception;
 
     private void SetError(Exception exception)
     {
@@ -1323,7 +1396,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
                 ScrapClientErrorKind.KeyProviderUnavailable => "密钥服务不可用 / Key provider unavailable",
                 ScrapClientErrorKind.CorruptStore => "存储需要处理 / Store needs attention",
                 ScrapClientErrorKind.StoreUnavailable => "存储不可用 / Store unavailable",
-                ScrapClientErrorKind.Conflict => "名称冲突 / Name conflict",
+                ScrapClientErrorKind.Conflict => "记录冲突 / Record conflict",
                 ScrapClientErrorKind.NotFound => "记录已变化 / Item changed",
                 ScrapClientErrorKind.OutcomeUnknown => "结果未知 / Outcome unknown",
                 _ => "操作失败 / Operation failed",

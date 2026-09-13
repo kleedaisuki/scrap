@@ -223,6 +223,19 @@
                    MaxHeight="330"
                    ScrollViewer.VerticalScrollBarVisibility="Auto" />
           <CheckBox Content="Masked presentation · 默认隐藏并尝试清理剪贴板" IsChecked="{Binding EditorIsMasked}" />
+          <Border IsVisible="{Binding HasError}"
+                  AutomationProperties.Name="Record save error"
+                  AutomationProperties.LiveSetting="Assertive"
+                  Background="#422735"
+                  BorderBrush="{DynamicResource RedBrush}"
+                  BorderThickness="1"
+                  CornerRadius="10"
+                  Padding="12,8">
+            <StackPanel>
+              <TextBlock Text="{Binding ErrorTitle}" Foreground="{DynamicResource RedBrush}" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding ErrorMessage}" Classes="muted" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
             <Button Content="Cancel" Command="{Binding CloseModalCommand}" />
             <Button Content="Save explicitly" Classes="primary" Command="{Binding SaveRecordCommand}" />
