@@ -101,7 +101,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         _clipboardDuration = clipboardDuration ?? DefaultClipboardDuration;
         _mutationDeadline = mutationDeadline ?? DefaultMutationDeadline;
 
-        RetryCommand = new AsyncRelayCommand(LoadScopesAsync, () => !IsLoadingScopes && !IsBusy);
+        RetryCommand = new AsyncRelayCommand(
+            RetryRefreshAsync,
+            () => !IsLoadingScopes && !IsBusy);
         OpenCreateScopeCommand = new RelayCommand(OpenCreateScope, () => !IsBusy && !IsLoadingScopes && !HasOpenModal);
         OpenRenameScopeCommand = new RelayCommand(OpenRenameScope, () => !IsBusy && !HasOpenModal && SelectedScope is not null);
         OpenDeleteScopeCommand = new AsyncRelayCommand(OpenDeleteScopeAsync, () => !IsBusy && !HasOpenModal && SelectedScope is not null);
@@ -666,8 +668,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
     }
 
-    private async Task LoadScopesAsync()
+    private async Task<bool> LoadScopesAsync()
     {
+        bool succeeded = false;
         IsLoadingScopes = true;
         ClearError();
         string? previousName = SelectedScope?.Name;
@@ -683,6 +686,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
             SelectedScope = scopes.FirstOrDefault(scope => string.Equals(scope.Name, previousName, StringComparison.Ordinal))
                 ?? (scopes.Count > 0 ? scopes[0] : null);
+            succeeded = true;
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
@@ -697,10 +701,13 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             IsLoadingScopes = false;
             NotifyCollectionState();
         }
+
+        return succeeded;
     }
 
-    private async Task ScheduleSearchAsync(bool immediate)
+    private async Task<bool> ScheduleSearchAsync(bool immediate)
     {
+        bool succeeded = false;
         long revision = Interlocked.Increment(ref _searchRevision);
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         CancellationTokenSource? previous = Interlocked.Exchange(ref _searchCancellation, cancellation);
@@ -716,7 +723,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             Candidates.Clear();
             IsSearching = false;
             NotifyCollectionState();
-            return;
+            return true;
         }
 
         try
@@ -737,7 +744,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
             if (revision != Volatile.Read(ref _searchRevision) || cancellation.IsCancellationRequested)
             {
-                return;
+                return false;
             }
 
             Candidates.Clear();
@@ -748,6 +755,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
             SelectedCandidate = null;
             ClearError();
+            succeeded = true;
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
@@ -776,6 +784,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
                 NotifyCollectionState();
             }
         }
+
+        return succeeded;
     }
 
     private async Task LoadSelectedRecordAsync()
@@ -924,9 +934,15 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             }
 
             CloseModals();
-            await LoadScopesAsync();
-            SelectedScope = Scopes.FirstOrDefault(scope => string.Equals(scope.Name, newName, StringComparison.Ordinal));
-            ShowToast(isRename ? "Scope 已重命名 / Scope renamed" : "Scope 已创建 / Scope created");
+            bool refreshed = await LoadScopesAsync();
+            if (refreshed)
+            {
+                SelectedScope = Scopes.FirstOrDefault(scope => string.Equals(scope.Name, newName, StringComparison.Ordinal));
+            }
+
+            CompleteMutationRefresh(
+                refreshed,
+                isRename ? "Scope 已重命名 / Scope renamed" : "Scope 已创建 / Scope created");
         }
         catch (Exception exception)
         {
@@ -960,8 +976,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
                 recursive ? scope.RecordCount : null,
                 mutationCancellation.Token);
             CloseModals();
-            await LoadScopesAsync();
-            ShowToast("Scope 已删除 / Scope deleted");
+            bool refreshed = await LoadScopesAsync();
+            CompleteMutationRefresh(refreshed, "Scope 已删除 / Scope deleted");
         }
         catch (Exception exception)
         {
@@ -1070,11 +1086,16 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
                 isEdit ? original?.Revision : 0);
             await _client.SaveRecordAsync(request, mutationCancellation.Token);
             CloseModals();
-            await ScheduleSearchAsync(immediate: true);
-            SelectedCandidate = Candidates.FirstOrDefault(candidate => string.Equals(candidate.Key, key, StringComparison.Ordinal));
-            await RefreshScopeCountAsync(editorScope);
-            ClearError();
-            ShowToast(isEdit ? "记录已保存 / Record saved" : "记录已创建 / Record created");
+            bool searchRefreshed = await ScheduleSearchAsync(immediate: true);
+            bool countRefreshed = await RefreshScopeCountAsync(editorScope);
+            if (searchRefreshed && countRefreshed)
+            {
+                SelectedCandidate = Candidates.FirstOrDefault(candidate => string.Equals(candidate.Key, key, StringComparison.Ordinal));
+            }
+
+            CompleteMutationRefresh(
+                searchRefreshed && countRefreshed,
+                isEdit ? "记录已保存 / Record saved" : "记录已创建 / Record created");
         }
         catch (Exception exception)
         {
@@ -1104,10 +1125,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             await _client.DeleteRecordAsync(record.Scope, record.Key, record.Revision, mutationCancellation.Token);
             CloseModals();
             SelectedCandidate = null;
-            await ScheduleSearchAsync(immediate: true);
-            await RefreshScopeCountAsync(record.Scope);
-            ClearError();
-            ShowToast("记录已删除 / Record deleted");
+            bool searchRefreshed = await ScheduleSearchAsync(immediate: true);
+            bool countRefreshed = await RefreshScopeCountAsync(record.Scope);
+            CompleteMutationRefresh(searchRefreshed && countRefreshed, "记录已删除 / Record deleted");
         }
         catch (Exception exception)
         {
@@ -1120,21 +1140,22 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
     }
 
-    private async Task RefreshScopeCountAsync(string scopeName)
+    private async Task<bool> RefreshScopeCountAsync(string scopeName)
     {
+        bool succeeded = false;
         try
         {
             IReadOnlyList<ScopeSummary> scopes = await _client.ListScopesAsync(_lifetime.Token);
             ScopeSummary? refreshed = scopes.FirstOrDefault(scope => string.Equals(scope.Name, scopeName, StringComparison.Ordinal));
             if (refreshed is null)
             {
-                return;
+                return false;
             }
 
             ScopeSummary? existing = Scopes.FirstOrDefault(scope => string.Equals(scope.Name, scopeName, StringComparison.Ordinal));
             if (existing is null)
             {
-                return;
+                return false;
             }
 
             int index = Scopes.IndexOf(existing);
@@ -1142,6 +1163,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             _selectedScope = refreshed;
             OnPropertyChanged(nameof(SelectedScope));
             OnPropertyChanged(nameof(ScopeStatus));
+            succeeded = true;
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
@@ -1150,6 +1172,16 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         catch (Exception exception)
         {
             SetError(exception);
+        }
+
+        return succeeded;
+    }
+
+    private async Task RetryRefreshAsync()
+    {
+        if (await LoadScopesAsync())
+        {
+            await ScheduleSearchAsync(immediate: true);
         }
     }
 
@@ -1360,6 +1392,20 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         {
             CloseModals();
         }
+    }
+
+    private void CompleteMutationRefresh(bool refreshed, string successMessage)
+    {
+        ShowToast(successMessage);
+        if (refreshed)
+        {
+            ClearError();
+            return;
+        }
+
+        ErrorTitle = "操作已完成，但刷新失败 / Saved, refresh failed";
+        ErrorMessage = "变更已经提交，但界面可能仍是旧状态。请选择 Retry 重新读取 daemon 状态；不要重复提交 mutation。 / " +
+            "The change was committed, but the view may be stale. Choose Retry to reload daemon state; do not repeat the mutation.";
     }
 
     private void HandleRecordSaveError(Exception exception, bool isEdit)
