@@ -153,11 +153,55 @@ public sealed class ScrapClient : IAsyncDisposable
         return new ScrapClient(connectionFactory, validatedOptions, stream);
     }
 
-    /// <summary>列出所有 scope。 / Lists all scopes.</summary>
+    /// <summary>
+    /// 自动遍历所有 keyset page 并列出全部 scope。 / Automatically traverses every keyset page and lists all scopes.
+    /// </summary>
     /// <param name="cancellationToken">取消请求的标记。 / Token that cancels the request.</param>
-    /// <returns>scope 列表。 / The scope list.</returns>
-    public Task<ScopeListResult> ListScopesAsync(CancellationToken cancellationToken = default) =>
-        SendAsync<ScopeListParams, ScopeListResult>(ProtocolMethods.ScopeList, new(), cancellationToken);
+    /// <returns>全部 scope，且 <see cref="ScopeListResult.NextCursor"/> 为 null。 / All scopes with a null <see cref="ScopeListResult.NextCursor"/>.</returns>
+    public async Task<ScopeListResult> ListScopesAsync(CancellationToken cancellationToken = default)
+    {
+        List<ScopeDto> scopes = [];
+        string? cursor = null;
+
+        do
+        {
+            ScopeListResult page = await ListScopesAsync(
+                cursor,
+                ProtocolConstants.DefaultScopeListPageSize,
+                cancellationToken).ConfigureAwait(false);
+            scopes.AddRange(page.Scopes);
+
+            if (page.NextCursor is not null &&
+                (page.Scopes.Count == 0 ||
+                 (cursor is not null && string.CompareOrdinal(page.NextCursor, cursor) <= 0)))
+            {
+                throw new ProtocolException(
+                    ProtocolErrorCodes.InvalidJson,
+                    "The daemon returned a non-progressing scope-list cursor.");
+            }
+
+            cursor = page.NextCursor;
+        }
+        while (cursor is not null);
+
+        return new ScopeListResult(scopes);
+    }
+
+    /// <summary>
+    /// 读取单个 ordinal keyset scope page。 / Reads one ordinal-keyset scope page.
+    /// </summary>
+    /// <param name="afterName">上一页的 <see cref="ScopeListResult.NextCursor"/>；首页为 null。 / Previous page's <see cref="ScopeListResult.NextCursor"/>; null for the first page.</param>
+    /// <param name="limit">本页 scope 上限。 / Maximum scopes in this page.</param>
+    /// <param name="cancellationToken">取消请求的标记。 / Token that cancels the request.</param>
+    /// <returns>一页 scope 与可选的下一游标。 / One scope page and an optional next cursor.</returns>
+    public Task<ScopeListResult> ListScopesAsync(
+        string? afterName,
+        int limit = ProtocolConstants.DefaultScopeListPageSize,
+        CancellationToken cancellationToken = default) =>
+        SendAsync<ScopeListParams, ScopeListResult>(
+            ProtocolMethods.ScopeList,
+            new(afterName, limit),
+            cancellationToken);
 
     /// <summary>创建 scope。 / Creates a scope.</summary>
     /// <param name="name">精确且不隐式 trim 的名称。 / Exact name without implicit trimming.</param>
@@ -293,7 +337,7 @@ public sealed class ScrapClient : IAsyncDisposable
             RecordListResult page = await ListRecordsAsync(
                 scope,
                 cursor,
-                ProtocolConstants.MaxRecordListPageSize,
+                ProtocolConstants.DefaultRecordListPageSize,
                 cancellationToken).ConfigureAwait(false);
             records.AddRange(page.Records);
 
