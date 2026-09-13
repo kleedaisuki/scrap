@@ -21,6 +21,17 @@ programs="scrap scrapd scrap-gui"
 begin_marker='# >>> scrap PATH / scrap PATH begin >>>'
 end_marker='# <<< scrap PATH / scrap PATH end <<<'
 
+# 在有限时间内尽力停止 daemon。Stop the daemon on a best-effort, bounded-time basis.
+stop_installed_daemon() {
+    [ -x "$bin_dir/scrap" ] || return 0
+    "$bin_dir/scrap" daemon shutdown >/dev/null 2>&1 & daemon_command=$!
+    (sleep 5; kill -KILL "$daemon_command" 2>/dev/null || true) & watchdog=$!
+    wait "$daemon_command" 2>/dev/null || true
+    kill "$watchdog" 2>/dev/null || true
+    wait "$watchdog" 2>/dev/null || true
+    sleep 1
+}
+
 # 只移除本安装器拥有的完整标记块。Remove only the complete block owned by this installer.
 remove_path_block() {
     profile=$1
@@ -41,7 +52,7 @@ if [ "$purge" -eq 1 ] && [ "$yes" -ne 1 ]; then
 fi
 
 # 尽力停止 daemon；卸载操作本身仍保持幂等。Stop the daemon best-effort; uninstall remains idempotent.
-if [ -x "$bin_dir/scrap" ]; then "$bin_dir/scrap" daemon shutdown >/dev/null 2>&1 || true; sleep 1; fi
+stop_installed_daemon
 
 if [ "$configure_path" -eq 1 ]; then
     remove_path_block "$HOME/.profile"

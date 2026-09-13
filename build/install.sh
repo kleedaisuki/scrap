@@ -17,6 +17,17 @@ programs="scrap scrapd scrap-gui"
 begin_marker='# >>> scrap PATH / scrap PATH begin >>>'
 end_marker='# <<< scrap PATH / scrap PATH end <<<'
 
+# 在有限时间内尽力停止旧 daemon。Stop the old daemon on a best-effort, bounded-time basis.
+stop_installed_daemon() {
+    [ -x "$bin_dir/scrap" ] || return 0
+    "$bin_dir/scrap" daemon shutdown >/dev/null 2>&1 & daemon_command=$!
+    (sleep 5; kill -KILL "$daemon_command" 2>/dev/null || true) & watchdog=$!
+    wait "$daemon_command" 2>/dev/null || true
+    kill "$watchdog" 2>/dev/null || true
+    wait "$watchdog" 2>/dev/null || true
+    sleep 1
+}
+
 # 将受管理 PATH 块精确写入一次。Write the managed PATH block exactly once.
 add_path_block() {
     profile=$1
@@ -39,8 +50,7 @@ for program in $programs; do
     fi
 done
 
-# 尝试关闭旧 daemon；不存在或已停止都不妨碍安装。Try to stop the old daemon; absence is harmless.
-if [ -x "$bin_dir/scrap" ]; then "$bin_dir/scrap" daemon shutdown >/dev/null 2>&1 || true; sleep 1; fi
+stop_installed_daemon
 mkdir -p "$bin_dir"
 chmod 700 "$scrap_root" "$bin_dir"
 

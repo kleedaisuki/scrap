@@ -22,7 +22,12 @@ $programs = @("scrap.exe", "scrapd.exe", "scrap-gui.exe")
 function Stop-InstalledDaemon {
     $cli = Join-Path $binDirectory "scrap.exe"
     if (Test-Path -LiteralPath $cli -PathType Leaf) {
-        try { & $cli daemon shutdown *> $null } catch { }
+        try {
+            $process = Start-Process -FilePath $cli -ArgumentList @("daemon", "shutdown") -PassThru -WindowStyle Hidden
+            if (-not $process.WaitForExit(5000)) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+            $process.Dispose()
+        }
+        catch { }
         Start-Sleep -Milliseconds 300
     }
 }
