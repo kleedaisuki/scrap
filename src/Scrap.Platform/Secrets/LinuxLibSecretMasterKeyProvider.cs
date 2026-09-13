@@ -52,14 +52,14 @@ public sealed class LinuxLibSecretMasterKeyProvider : IMasterKeyProvider
             byte[] encoded = ArrayPool<byte>.Shared.Rent(EncodedKeyBytes);
             try
             {
+                if (LibcNative.StringLength(secret, EncodedKeyBytes + 1) != EncodedKeyBytes)
+                {
+                    throw ProviderError("load", "Secret Service returned a master key with an invalid encoded length.");
+                }
+
                 for (int index = 0; index < EncodedKeyBytes; index++)
                 {
                     encoded[index] = Marshal.ReadByte(secret, index);
-                }
-
-                if (Marshal.ReadByte(secret, EncodedKeyBytes) != 0)
-                {
-                    throw ProviderError("load", "Secret Service returned a master key with an invalid encoded length.");
                 }
 
                 var key = new byte[MasterKeyBytes];
@@ -301,5 +301,13 @@ public sealed class LinuxLibSecretMasterKeyProvider : IMasterKeyProvider
                 NativeLibrary.GetExport(library, "g_str_equal"),
                 NativeLibrary.GetExport(library, "g_free"));
         }
+    }
+
+    private static class LibcNative
+    {
+        [DllImport("libc", EntryPoint = "strnlen", CallingConvention = CallingConvention.Cdecl)]
+        private static extern nuint StringLength(nint value, nuint maximumLength);
+
+        public static nuint StringLength(nint value, int maximumLength) => StringLength(value, (nuint)maximumLength);
     }
 }

@@ -42,6 +42,11 @@ public sealed class IpcEndpointDescriptor
         ArgumentNullException.ThrowIfNull(paths);
         string identity = CurrentUserIdentity.GetStableId();
         string profile = Path.GetFullPath(paths.RootDirectory);
+        if (OperatingSystem.IsWindows())
+        {
+            profile = profile.ToUpperInvariant();
+        }
+
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes($"scrap-ipc-v1\0{identity}\0{profile}"));
         string suffix = Convert.ToHexStringLower(hash.AsSpan(0, 16));
 

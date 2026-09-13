@@ -45,7 +45,7 @@ public sealed class DaemonInstanceLease : IDisposable
                 bufferSize: 256,
                 FileOptions.WriteThrough);
         }
-        catch (IOException)
+        catch (IOException exception) when (IsLockContention(exception))
         {
             return null;
         }
@@ -75,5 +75,13 @@ public sealed class DaemonInstanceLease : IDisposable
     {
         FileStream? stream = Interlocked.Exchange(ref _stream, null);
         stream?.Dispose();
+    }
+
+    private static bool IsLockContention(IOException exception)
+    {
+        int nativeError = exception.HResult & 0xffff;
+        return OperatingSystem.IsWindows()
+            ? nativeError is 32 or 33
+            : nativeError is 11;
     }
 }
