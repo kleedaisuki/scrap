@@ -42,5 +42,5 @@ public static class ProtocolConstants
     /// <c>record.list</c> 单页允许的最大 record 数量。
     /// / Gets the maximum number of records permitted in one <c>record.list</c> page.
     /// </summary>
-    public const int MaxRecordListPageSize = 500;
+    public const int MaxRecordListPageSize = 250;
 }

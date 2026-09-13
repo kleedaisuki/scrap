@@ -350,6 +350,16 @@ public sealed class EnvelopeTests
     }
 
     [Fact]
+    public void RecordListParams_UsesConservativeMaximumPageSize()
+    {
+        var maximum = new RecordListParams("scope", Limit: ProtocolConstants.MaxRecordListPageSize);
+
+        Assert.Equal(250, maximum.Limit);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new RecordListParams("scope", Limit: ProtocolConstants.MaxRecordListPageSize + 1));
+    }
+
+    [Fact]
     public void MaximumScopePage_WithWorstCaseEscapedNamesFitsDefaultFrame()
     {
         string maximumEscapedName = new('\u0001', 256);
@@ -358,7 +368,10 @@ public sealed class EnvelopeTests
             .Select(_ => new ScopeDto(maximumEscapedName))
             .ToArray();
 
-        byte[] payload = ProtocolJson.Serialize(new ScopeListResult(scopes, maximumEscapedName));
+        ProtocolResponse response = ProtocolResponse.Success(
+            "maximum-scope-page",
+            new ScopeListResult(scopes, maximumEscapedName));
+        byte[] payload = ProtocolJson.Serialize(response);
 
         Assert.True(payload.Length < ProtocolConstants.DefaultMaxFrameSize, $"Payload was {payload.Length} bytes.");
     }
@@ -366,11 +379,12 @@ public sealed class EnvelopeTests
     [Fact]
     public void MaximumRecordPage_WithWorstCaseEscapedKeysFitsDefaultFrame()
     {
-        string maximumEscapedKey = new('\u0001', 256);
+        string maximumEscapedScope = new('\u0001', 256);
+        string maximumEscapedKey = new('\u0002', 256);
         RecordSummaryDto[] records = Enumerable
             .Range(0, ProtocolConstants.MaxRecordListPageSize)
             .Select(index => new RecordSummaryDto(
-                "s",
+                maximumEscapedScope,
                 maximumEscapedKey,
                 RecordPresentation.Masked,
                 DateTimeOffset.UnixEpoch,
@@ -378,7 +392,10 @@ public sealed class EnvelopeTests
                 index + 1))
             .ToArray();
 
-        byte[] payload = ProtocolJson.Serialize(new RecordListResult(records, maximumEscapedKey));
+        ProtocolResponse response = ProtocolResponse.Success(
+            "maximum-record-page",
+            new RecordListResult(records, maximumEscapedKey));
+        byte[] payload = ProtocolJson.Serialize(response);
 
         Assert.True(payload.Length < ProtocolConstants.DefaultMaxFrameSize, $"Payload was {payload.Length} bytes.");
     }
