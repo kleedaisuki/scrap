@@ -249,8 +249,63 @@ public sealed class EnvelopeTests
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new ScopeDeleteParams("scope", Recursive: true, ExpectedRecordCount: -1));
 
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Assert.Throws<JsonException>(() =>
             ProtocolJson.Deserialize<ScopeDeleteParams>(Encoding.UTF8.GetBytes(
                 """{"name":"scope","recursive":true,"expectedRecordCount":-1}""")));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0L)]
+    [InlineData(1L)]
+    public void RecordSetParams_AcceptsFrozenExpectedRevisionSemantics(long? expectedRevision)
+    {
+        var parameters = new RecordSetParams(
+            "scope",
+            "key",
+            "value",
+            ExpectedRevision: expectedRevision);
+
+        Assert.Equal(expectedRevision, parameters.ExpectedRevision);
+    }
+
+    [Fact]
+    public void RecordSetParams_RejectsNegativeRevisionFromConstructorAndWire()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new RecordSetParams("scope", "key", "value", ExpectedRevision: -1));
+
+        Assert.Throws<JsonException>(() => ProtocolJson.Deserialize<RecordSetParams>(
+            Encoding.UTF8.GetBytes(
+                """{"scope":"s","key":"k","value":"v","presentation":"masked","expectedRevision":-1}""")));
+    }
+
+    [Theory]
+    [InlineData(0L)]
+    [InlineData(-1L)]
+    public void ExistingRecordMutations_RejectNonPositiveRevision(long invalidRevision)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new RecordRenameParams("scope", "key", "new-key", invalidRevision));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new RecordDeleteParams("scope", "key", invalidRevision));
+    }
+
+    [Theory]
+    [InlineData("record.rename", 0L)]
+    [InlineData("record.rename", -1L)]
+    [InlineData("record.delete", 0L)]
+    [InlineData("record.delete", -1L)]
+    public void ExistingRecordMutations_RejectNonPositiveRevisionFromWire(
+        string method,
+        long invalidRevision)
+    {
+        string json = method == ProtocolMethods.RecordRename
+            ? $$"""{"scope":"s","key":"k","newKey":"n","expectedRevision":{{invalidRevision}}}"""
+            : $$"""{"scope":"s","key":"k","expectedRevision":{{invalidRevision}}}""";
+
+        Assert.Throws<JsonException>(() => method == ProtocolMethods.RecordRename
+            ? ProtocolJson.Deserialize<RecordRenameParams>(Encoding.UTF8.GetBytes(json))
+            : ProtocolJson.Deserialize<RecordDeleteParams>(Encoding.UTF8.GetBytes(json)));
     }
 }

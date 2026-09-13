@@ -71,13 +71,30 @@ public sealed record RecordGetResult(RecordDto Record);
 /// <param name="Key">精确、大小写敏感的 key。 / Exact, case-sensitive key.</param>
 /// <param name="Value">整值替换的 UTF-8 文本。 / UTF-8 text used for whole-value replacement.</param>
 /// <param name="Presentation">展示策略。 / Presentation policy.</param>
-/// <param name="ExpectedRevision">可选乐观并发修订号；不匹配时 mutation 原子失败。 / Optional optimistic-concurrency revision; a mismatch atomically rejects the mutation.</param>
+/// <param name="ExpectedRevision">写入前置条件：null 表示无条件 upsert，0 表示仅当 record 不存在时创建，正数表示必须匹配当前 revision。 / Write precondition: null means unconditional upsert, zero means create only when the record does not exist, and a positive value must match the current revision.</param>
+/// <remarks>
+/// daemon 必须在同一事务内判断前置条件并执行写入；负数不是合法 wire value。
+/// / The daemon must evaluate the precondition and perform the write in one transaction; negative values are not valid on the wire.
+/// </remarks>
 public sealed record RecordSetParams(
     string Scope,
     string Key,
     string Value,
     RecordPresentation Presentation = RecordPresentation.Masked,
-    long? ExpectedRevision = null);
+    long? ExpectedRevision = null)
+{
+    /// <summary>
+    /// 获取 set 前置条件：null=unconditional、0=create-only、正数=revision match。
+    /// / Gets the set precondition: null=unconditional, zero=create-only, positive=revision match.
+    /// </summary>
+    public long? ExpectedRevision { get; init; } =
+        ExpectedRevision is null or >= 0
+            ? ExpectedRevision
+            : throw new ArgumentOutOfRangeException(
+                nameof(ExpectedRevision),
+                ExpectedRevision,
+                "Expected revision cannot be negative.");
+}
 
 /// <summary>
 /// 表示 <c>record.set</c> 结果；为避免不必要的 secret 副本，结果不回显 value。
@@ -94,12 +111,25 @@ public sealed record RecordSetResult(RecordSummaryDto Record, bool Created);
 /// <param name="Scope">精确 scope 名称。 / Exact scope name.</param>
 /// <param name="Key">当前精确 key。 / Current exact key.</param>
 /// <param name="NewKey">目标精确 key。 / Target exact key.</param>
-/// <param name="ExpectedRevision">可选乐观并发修订号。 / Optional optimistic-concurrency revision.</param>
+/// <param name="ExpectedRevision">可选的正数乐观并发修订号；null 表示无条件操作。 / Optional positive optimistic-concurrency revision; null means unconditional operation.</param>
 public sealed record RecordRenameParams(
     string Scope,
     string Key,
     string NewKey,
-    long? ExpectedRevision = null);
+    long? ExpectedRevision = null)
+{
+    /// <summary>
+    /// 获取必须为正数的 rename revision 前置条件，或 null。
+    /// / Gets the strictly positive rename revision precondition, or null.
+    /// </summary>
+    public long? ExpectedRevision { get; init; } =
+        ExpectedRevision is null or > 0
+            ? ExpectedRevision
+            : throw new ArgumentOutOfRangeException(
+                nameof(ExpectedRevision),
+                ExpectedRevision,
+                "Expected revision must be positive.");
+}
 
 /// <summary>
 /// 表示 <c>record.rename</c> 结果。 / Represents the result of <c>record.rename</c>.
@@ -112,11 +142,24 @@ public sealed record RecordRenameResult(RecordSummaryDto Record);
 /// </summary>
 /// <param name="Scope">精确 scope 名称。 / Exact scope name.</param>
 /// <param name="Key">精确、大小写敏感的 key。 / Exact, case-sensitive key.</param>
-/// <param name="ExpectedRevision">可选乐观并发修订号。 / Optional optimistic-concurrency revision.</param>
+/// <param name="ExpectedRevision">可选的正数乐观并发修订号；null 表示无条件操作。 / Optional positive optimistic-concurrency revision; null means unconditional operation.</param>
 public sealed record RecordDeleteParams(
     string Scope,
     string Key,
-    long? ExpectedRevision = null);
+    long? ExpectedRevision = null)
+{
+    /// <summary>
+    /// 获取必须为正数的 delete revision 前置条件，或 null。
+    /// / Gets the strictly positive delete revision precondition, or null.
+    /// </summary>
+    public long? ExpectedRevision { get; init; } =
+        ExpectedRevision is null or > 0
+            ? ExpectedRevision
+            : throw new ArgumentOutOfRangeException(
+                nameof(ExpectedRevision),
+                ExpectedRevision,
+                "Expected revision must be positive.");
+}
 
 /// <summary>
 /// 表示 <c>record.delete</c> 的空成功结果。 / Represents the empty success result of <c>record.delete</c>.

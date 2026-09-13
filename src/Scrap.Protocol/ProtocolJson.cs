@@ -40,8 +40,15 @@ public static class ProtocolJson
     /// <exception cref="JsonException">JSON 语法或 DTO contract 非法。 / JSON syntax or the DTO contract is invalid.</exception>
     public static T Deserialize<T>(ReadOnlySpan<byte> utf8Json) where T : notnull
     {
-        T? value = JsonSerializer.Deserialize<T>(utf8Json, SerializerOptions);
-        return value ?? throw new JsonException("JSON payload cannot be null.");
+        try
+        {
+            T? value = JsonSerializer.Deserialize<T>(utf8Json, SerializerOptions);
+            return value ?? throw new JsonException("JSON payload cannot be null.");
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            throw new JsonException("JSON contains an out-of-range protocol value.", exception);
+        }
     }
 
     /// <summary>
@@ -77,6 +84,13 @@ public static class ProtocolJson
             throw new ProtocolException(
                 ProtocolErrorCodes.InvalidJson,
                 "JSON does not match the expected protocol contract.",
+                exception);
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            throw new ProtocolException(
+                ProtocolErrorCodes.InvalidJson,
+                "JSON contains an out-of-range protocol value.",
                 exception);
         }
     }
