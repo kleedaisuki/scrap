@@ -142,13 +142,21 @@ public sealed class SqliteStore
     }
 
     /// <summary>
-    /// 删除 scope；非空 scope 仅在 <paramref name="recursive"/> 为 true 时级联删除。<br/>
-    /// Deletes a scope; a non-empty scope is cascaded only when <paramref name="recursive"/> is true.
+    /// 删除 scope；非空 scope 仅在 <paramref name="recursive"/> 为 true 时级联删除，可在同一事务校验预览时的数量。<br/>
+    /// Deletes a scope; a non-empty scope is cascaded only when <paramref name="recursive"/> is true, optionally checking the previewed count in the same transaction.
     /// </summary>
+    /// <param name="name">精确 scope 名称。 / Exact scope name.</param>
+    /// <param name="recursive">是否显式允许级联删除。 / Whether cascade deletion is explicitly allowed.</param>
+    /// <param name="expectedRecordCount">可选的确认时 record 数量；变化时原子冲突。 / Optional record count shown at confirmation; a change causes an atomic conflict.</param>
     /// <returns>删除的 record 数量。 / Number of deleted records.</returns>
-    public long DeleteScope(string name, bool recursive = false)
+    public long DeleteScope(string name, bool recursive = false, int? expectedRecordCount = null)
     {
         ValidateName(name, nameof(name));
+        if (expectedRecordCount < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(expectedRecordCount), "Expected record count must not be negative.");
+        }
+
         using var connection = OpenConnection();
         using var transaction = connection.BeginTransaction(deferred: false);
         var scope = FindScope(connection, transaction, name) ?? throw new StorageNotFoundException(StorageEntityKind.Scope, name);
@@ -156,6 +164,13 @@ public sealed class SqliteStore
         if (count != 0 && !recursive)
         {
             throw new ScopeNotEmptyException(name, count);
+        }
+
+        if (recursive && expectedRecordCount is not null && count != expectedRecordCount.Value)
+        {
+            throw new StorageConflictException(
+                StorageConflictKind.Concurrency,
+                $"Scope record count changed before recursive deletion: {name}");
         }
 
         using var command = connection.CreateCommand();

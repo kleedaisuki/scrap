@@ -416,6 +416,27 @@ public sealed class SqliteStoreTests
     }
 
     [Fact]
+    public void RecursiveDeleteScopeRejectsChangedRecordCountWithoutPartialDeletion()
+    {
+        using var database = TestDatabase.Create();
+        database.Store.CreateScope("dev");
+        database.Store.SetRecord("dev", "first", 0, _ => Protected("one"));
+        const int observedRecordCount = 1;
+        database.Store.SetRecord("dev", "concurrent", 0, _ => Protected("two"));
+
+        var exception = Assert.Throws<StorageConflictException>(() => database.Store.DeleteScope(
+            "dev",
+            recursive: true,
+            expectedRecordCount: observedRecordCount));
+
+        Assert.Equal(StorageConflictKind.Concurrency, exception.Kind);
+        Assert.NotNull(database.Store.GetScope("dev"));
+        Assert.Equal(2, database.Store.ListAllRecordMetadata("dev").Count);
+        Assert.Equal(2, database.Store.DeleteScope("dev", recursive: true, expectedRecordCount: 2));
+        Assert.Null(database.Store.GetScope("dev"));
+    }
+
+    [Fact]
     public void DatabaseAndWalDoNotContainPlaintextValue()
     {
         using var database = TestDatabase.Create();
