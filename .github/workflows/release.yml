@@ -95,6 +95,8 @@ jobs:
           global-json-file: global.json
       - name: Record SDK information
         run: dotnet --info
+      - name: Restore locked runtime assets
+        run: dotnet restore Scrap.slnx --locked-mode
       - name: Build self-contained package
         shell: pwsh
         run: ./build/package.ps1 -RuntimeIdentifier "${{ matrix.rid }}" -Version "${{ needs.metadata.outputs.version }}" -OutputDirectory artifacts
