@@ -47,6 +47,7 @@ function Publish-EntryPoint {
         --configuration Release `
         --runtime $RuntimeIdentifier `
         --self-contained true `
+        --no-restore `
         --output $publishDirectory `
         -p:Version=$Version `
         -p:InformationalVersion=$Version `
