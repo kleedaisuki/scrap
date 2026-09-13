@@ -195,6 +195,24 @@ public sealed class SearchTests
         Assert.Equal(DomainErrorCode.RegexTimeout, result.Error?.Code);
     }
 
+    /// <summary>验证大量 fuzzy 候选可在批次边界确定性取消。 / Verifies deterministic cancellation of a large fuzzy candidate set at a batch boundary.</summary>
+    [Fact]
+    public void LargeFuzzySearchObservesCancellationBetweenBatches()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var request = Request(
+            new string('y', RecordKey.MaximumUtf8Bytes),
+            SearchMode.Fuzzy,
+            CaseSensitivity.Sensitive);
+
+        var exception = Assert.Throws<OperationCanceledException>(() => RecordSearch.Search(
+            CancelAfterBatch(cancellation),
+            request,
+            cancellation.Token));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+    }
+
     private static SearchRequest Request(
         string query,
         SearchMode mode,
@@ -209,4 +227,19 @@ public sealed class SearchTests
 
     private static string[] Values(IEnumerable<SearchMatch> matches) =>
         matches.Select(match => match.Key.Value).ToArray();
+
+    private static IEnumerable<RecordKey> CancelAfterBatch(CancellationTokenSource cancellation)
+    {
+        for (var index = 0; index < 10_000; index++)
+        {
+            if (index == 64)
+            {
+                cancellation.Cancel();
+            }
+
+            yield return RecordKey.Create(
+                index.ToString("D5", System.Globalization.CultureInfo.InvariantCulture) +
+                new string('x', RecordKey.MaximumUtf8Bytes - 5));
+        }
+    }
 }

@@ -174,18 +174,32 @@ public static class RecordSearch
     /// <returns>有界结果或正则查询错误。 / Bounded results or a regex query error.</returns>
     public static DomainResult<IReadOnlyList<SearchMatch>> Search(
         IEnumerable<RecordKey> keys,
-        SearchRequest request)
+        SearchRequest request) => Search(keys, request, CancellationToken.None);
+
+    /// <summary>
+    /// 搜索 key 并确定性排序，同时允许 daemon 取消已过时或正在关闭的查询。取消会抛出 <see cref="OperationCanceledException"/>。<br/>
+    /// Searches keys and sorts deterministically while allowing the daemon to cancel stale or shutting-down queries. Cancellation throws <see cref="OperationCanceledException"/>.
+    /// </summary>
+    /// <param name="keys">同一 scope 的 key 元数据。 / Key metadata from one scope.</param>
+    /// <param name="request">已验证请求。 / Validated request.</param>
+    /// <param name="cancellationToken">批次与高成本评分工作的取消信号。 / Cancellation signal checked between batches and expensive scoring work.</param>
+    /// <returns>有界结果或正则查询错误。 / Bounded results or a regex query error.</returns>
+    public static DomainResult<IReadOnlyList<SearchMatch>> Search(
+        IEnumerable<RecordKey> keys,
+        SearchRequest request,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(keys);
         ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
 
         return request.Mode switch
         {
             SearchMode.Exact => DomainResult.Success<IReadOnlyList<SearchMatch>>(
-                SearchExact(keys, request)),
+                SearchExact(keys, request, cancellationToken)),
             SearchMode.Fuzzy => DomainResult.Success<IReadOnlyList<SearchMatch>>(
-                SearchFuzzy(keys, request)),
-            SearchMode.Regex => SearchRegex(keys, request),
+                SearchFuzzy(keys, request, cancellationToken)),
+            SearchMode.Regex => SearchRegex(keys, request, cancellationToken),
             _ => DomainResult.Failure<IReadOnlyList<SearchMatch>>(new DomainError(
                 DomainErrorCode.InvalidOption,
                 "mode must be exact, fuzzy, or regex.",
@@ -195,11 +209,27 @@ public static class RecordSearch
 
     private static SearchMatch[] SearchExact(
         IEnumerable<RecordKey> keys,
-        SearchRequest request)
+        SearchRequest request,
+        CancellationToken cancellationToken)
     {
         var comparison = ToComparison(request.CaseSensitivity);
-        return keys
-            .Where(key => string.Equals(key.Value, request.Query, comparison))
+        var matches = new List<RecordKey>();
+        var index = 0;
+        foreach (var key in keys)
+        {
+            if ((index++ & 63) == 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            if (string.Equals(key.Value, request.Query, comparison))
+            {
+                matches.Add(key);
+            }
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return matches
             .OrderBy(key => key.Value, StringComparer.Ordinal)
             .Take(request.Limit)
             .Select(key => new SearchMatch(key, ExactScore))
@@ -208,16 +238,35 @@ public static class RecordSearch
 
     private static SearchMatch[] SearchFuzzy(
         IEnumerable<RecordKey> keys,
-        SearchRequest request) => keys
-        .Select(key => new SearchMatch(key, ScoreFuzzy(key.Value, request)))
-        .OrderByDescending(match => match.Score)
-        .ThenBy(match => match.Key.Value, StringComparer.Ordinal)
-        .Take(request.Limit)
-        .ToArray();
+        SearchRequest request,
+        CancellationToken cancellationToken)
+    {
+        var matches = new List<SearchMatch>();
+        var index = 0;
+        foreach (var key in keys)
+        {
+            if ((index++ & 63) == 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            matches.Add(new SearchMatch(
+                key,
+                ScoreFuzzy(key.Value, request, cancellationToken)));
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return matches
+            .OrderByDescending(match => match.Score)
+            .ThenBy(match => match.Key.Value, StringComparer.Ordinal)
+            .Take(request.Limit)
+            .ToArray();
+    }
 
     private static DomainResult<IReadOnlyList<SearchMatch>> SearchRegex(
         IEnumerable<RecordKey> keys,
-        SearchRequest request)
+        SearchRequest request,
+        CancellationToken cancellationToken)
     {
         var elapsed = Stopwatch.StartNew();
         Regex regex;
@@ -244,8 +293,14 @@ public static class RecordSearch
         try
         {
             var matchedKeys = new List<RecordKey>();
+            var index = 0;
             foreach (var key in keys)
             {
+                if ((index++ & 15) == 0)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+
                 if (elapsed.Elapsed >= SearchRequest.RegexTimeout)
                 {
                     return RegexFailure(DomainErrorCode.RegexTimeout, "regex search exceeded 100 ms.");
@@ -257,6 +312,7 @@ public static class RecordSearch
                 }
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             if (elapsed.Elapsed >= SearchRequest.RegexTimeout)
             {
                 return RegexFailure(DomainErrorCode.RegexTimeout, "regex search exceeded 100 ms.");
@@ -296,7 +352,10 @@ public static class RecordSearch
         string message) => DomainResult.Failure<IReadOnlyList<SearchMatch>>(
             new DomainError(code, message, "query"));
 
-    private static int ScoreFuzzy(string candidate, SearchRequest request)
+    private static int ScoreFuzzy(
+        string candidate,
+        SearchRequest request,
+        CancellationToken cancellationToken)
     {
         if (request.Query.Length == 0)
         {
@@ -333,7 +392,12 @@ public static class RecordSearch
             return SubsequenceScore - subsequence - lengthPenalty;
         }
 
-        var distance = EditDistance(candidate, request.Query, request.CaseSensitivity);
+        cancellationToken.ThrowIfCancellationRequested();
+        var distance = EditDistance(
+            candidate,
+            request.Query,
+            request.CaseSensitivity,
+            cancellationToken);
         return Math.Max(0, EditScore - (distance * 1_000) - lengthPenalty);
     }
 
@@ -417,7 +481,8 @@ public static class RecordSearch
     private static int EditDistance(
         string candidate,
         string query,
-        CaseSensitivity caseSensitivity)
+        CaseSensitivity caseSensitivity,
+        CancellationToken cancellationToken)
     {
         Span<Rune> candidateRunes = stackalloc Rune[candidate.Length];
         Span<Rune> queryRunes = stackalloc Rune[query.Length];
@@ -447,6 +512,11 @@ public static class RecordSearch
 
         for (var row = 1; row <= rows.Length; row++)
         {
+            if ((row & 31) == 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
             current.Fill(beyondBound);
             current[0] = row <= MaximumEditDistance ? row : beyondBound;
             var firstColumn = Math.Max(1, row - MaximumEditDistance);
