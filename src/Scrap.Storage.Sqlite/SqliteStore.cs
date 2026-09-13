@@ -591,7 +591,7 @@ public sealed class SqliteStore
         }
         finally
         {
-            DropScopeRenameStage(connection);
+            CleanupScopeRenameStage(connection);
         }
     }
 
@@ -1053,12 +1053,22 @@ public sealed class SqliteStore
         }
     }
 
-    /// <summary>清除 pooled connection 上的 TEMP staging 表。 / Removes the TEMP staging table from a potentially pooled connection.</summary>
-    private static void DropScopeRenameStage(SqliteConnection connection)
+    /// <summary>
+    /// 清除 pooled connection 上的 TEMP staging 表；清理失败时淘汰连接，不能在主事务提交后把成功伪报为失败。<br/>
+    /// Removes TEMP staging from a pooled connection; on cleanup failure the connection is evicted so a committed main transaction is never misreported as failed.
+    /// </summary>
+    private static void CleanupScopeRenameStage(SqliteConnection connection)
     {
-        using var command = connection.CreateCommand();
-        command.CommandText = "DROP TABLE IF EXISTS temp.scope_rename_stage;";
-        command.ExecuteNonQuery();
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "DROP TABLE IF EXISTS temp.scope_rename_stage;";
+            command.ExecuteNonQuery();
+        }
+        catch (SqliteException)
+        {
+            SqliteConnection.ClearPool(connection);
+        }
     }
 
     private static StoredRecord ReadRecord(SqliteDataReader reader, long scopeId, string scopeName)
