@@ -80,8 +80,11 @@ public sealed class DaemonInstanceLease : IDisposable
     private static bool IsLockContention(IOException exception)
     {
         int nativeError = exception.HResult & 0xffff;
-        return OperatingSystem.IsWindows()
-            ? nativeError is 32 or 33
-            : nativeError is 11;
+        if (OperatingSystem.IsWindows())
+        {
+            return nativeError is 32 or 33;
+        }
+
+        return OperatingSystem.IsMacOS() ? nativeError == 35 : nativeError == 11;
     }
 }

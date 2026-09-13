@@ -70,7 +70,7 @@ public sealed class IpcEndpointDescriptor
     /// </summary>
     /// <returns>调用者拥有且必须释放的 stream。A caller-owned stream that must be disposed.</returns>
     public NamedPipeClientStream CreateClientStream() =>
-        new(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous, TokenImpersonationLevel.None, HandleInheritability.None);
+        new(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly, TokenImpersonationLevel.None, HandleInheritability.None);
 
     /// <summary>
     /// 创建已绑定、等待连接的 server stream。Creates a bound server stream ready to await a connection.
