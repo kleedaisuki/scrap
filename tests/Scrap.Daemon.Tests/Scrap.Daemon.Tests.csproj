@@ -18,4 +18,9 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Scrap.Daemon\Scrap.Daemon.csproj" />
+    <ProjectReference Include="..\..\src\Scrap.Protocol\Scrap.Protocol.csproj" />
+  </ItemGroup>
+
 </Project>
