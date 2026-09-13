@@ -195,6 +195,14 @@ internal sealed class DaemonRequestDispatcher
         {
             throw new ProtocolException(ProtocolErrorCodes.InvalidParams, "Method parameters are invalid.", exception);
         }
+        catch (ArgumentException exception)
+        {
+            throw new ProtocolException(ProtocolErrorCodes.InvalidParams, "Method parameters are invalid.", exception);
+        }
+        catch (JsonException exception)
+        {
+            throw new ProtocolException(ProtocolErrorCodes.InvalidParams, "Method parameters are invalid.", exception);
+        }
     }
 
     private static async Task<object> BoxAsync<T>(Task<T> task) where T : notnull =>

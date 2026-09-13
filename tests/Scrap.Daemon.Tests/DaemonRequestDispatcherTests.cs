@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Scrap.Domain;
 using Scrap.Protocol;
@@ -127,6 +128,35 @@ public sealed class DaemonRequestDispatcherTests
                 value = "机密值",
                 expectedRevision = "not-an-integer",
             }));
+
+        DaemonDispatchResult dispatch = await dispatcher.DispatchAsync(request, CancellationToken.None);
+
+        AssertError(dispatch, ProtocolErrorCodes.InvalidParams);
+        Assert.Empty(operations.Invocations);
+    }
+
+    /// <summary>
+    /// 验证 raw wire 中违反 DTO 数值不变量的参数统一返回 invalid_params，而不会泄漏构造异常。
+    /// / Verifies that raw-wire parameters violating DTO numeric invariants uniformly return invalid_params without leaking constructor exceptions.
+    /// </summary>
+    [Theory]
+    [InlineData(ProtocolMethods.ScopeDelete, "{\"name\":\"scope\",\"recursive\":true,\"expectedRecordCount\":-1}")]
+    [InlineData(ProtocolMethods.RecordSet, "{\"scope\":\"scope\",\"key\":\"key\",\"value\":\"secret\",\"expectedRevision\":-1}")]
+    [InlineData(ProtocolMethods.RecordRename, "{\"scope\":\"scope\",\"key\":\"key\",\"newKey\":\"new\",\"expectedRevision\":0}")]
+    [InlineData(ProtocolMethods.RecordDelete, "{\"scope\":\"scope\",\"key\":\"key\",\"expectedRevision\":0}")]
+    public async Task DispatchAsyncMapsRawNumericInvariantFailuresToInvalidParams(
+        string method,
+        string rawParameters)
+    {
+        var operations = new FakeDaemonOperations();
+        using var coordinator = new RequestExecutionCoordinator(new DaemonRuntimeState());
+        var dispatcher = CreateDispatcher(operations, coordinator);
+        using JsonDocument document = JsonDocument.Parse(rawParameters);
+        var request = new ProtocolRequest(
+            ProtocolConstants.CurrentVersion,
+            RequestId,
+            method,
+            document.RootElement.Clone());
 
         DaemonDispatchResult dispatch = await dispatcher.DispatchAsync(request, CancellationToken.None);
 
