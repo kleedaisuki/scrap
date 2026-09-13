@@ -152,6 +152,42 @@ public sealed class SqliteStore
     }
 
     /// <summary>
+    /// 使用 .NET ordinal keyset 游标分页列出 scopes；调用方可请求 `limit + 1` 判断下一页。<br/>
+    /// Pages scopes with a .NET ordinal keyset cursor; callers may request `limit + 1` to detect a next page.
+    /// </summary>
+    /// <param name="afterName">排除该名称及之前名称；null 从首页开始。 / Excludes this name and preceding names; null starts at the first page.</param>
+    /// <param name="limit">读取上限，允许协议最大值 1000 加一。 / Read limit, allowing the protocol maximum of 1000 plus one.</param>
+    public IReadOnlyList<StoredScope> ListScopes(string? afterName, int limit = 101)
+    {
+        if (afterName is not null)
+        {
+            ValidateName(afterName, nameof(afterName));
+        }
+
+        ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(limit, 1001);
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, name, created_at, updated_at
+            FROM scopes
+            WHERE $afterName IS NULL OR name COLLATE SCRAP_ORDINAL > $afterName COLLATE SCRAP_ORDINAL
+            ORDER BY name COLLATE SCRAP_ORDINAL
+            LIMIT $limit;
+            """;
+        command.Parameters.AddWithValue("$afterName", (object?)afterName ?? DBNull.Value);
+        command.Parameters.AddWithValue("$limit", limit);
+        using var reader = command.ExecuteReader();
+        var scopes = new List<StoredScope>();
+        while (reader.Read())
+        {
+            scopes.Add(ReadScope(reader));
+        }
+
+        return scopes;
+    }
+
+    /// <summary>
     /// 删除 scope；非空 scope 仅在 <paramref name="recursive"/> 为 true 时级联删除，可在同一事务校验预览时的数量。<br/>
     /// Deletes a scope; a non-empty scope is cascaded only when <paramref name="recursive"/> is true, optionally checking the previewed count in the same transaction.
     /// </summary>

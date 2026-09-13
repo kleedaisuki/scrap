@@ -102,6 +102,32 @@ public sealed class SqliteStoreTests
     }
 
     [Fact]
+    public void ScopeKeysetPaginationDoesNotBreakAtUnicodeUtf16Boundary()
+    {
+        using var database = TestDatabase.Create();
+        foreach (var name in OrdinalEdgeCaseOrder.Reverse())
+        {
+            database.Store.CreateScope(name);
+        }
+
+        var observed = new List<string>();
+        string? afterName = null;
+        while (true)
+        {
+            var page = database.Store.ListScopes(afterName, limit: 1);
+            if (page.Count == 0)
+            {
+                break;
+            }
+
+            afterName = page[0].Name;
+            observed.Add(afterName);
+        }
+
+        Assert.Equal(OrdinalEdgeCaseOrder, observed);
+    }
+
+    [Fact]
     public void SetRecordUpsertsAndPreservesPermanentIdentity()
     {
         using var database = TestDatabase.Create();
