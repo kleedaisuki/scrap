@@ -51,6 +51,7 @@ function Publish-EntryPoint {
         -p:Version=$Version `
         -p:InformationalVersion=$Version `
         -p:PublishSingleFile=true `
+        -p:PublishAot=false `
         -p:PublishTrimmed=false `
         -p:DebugSymbols=false `
         -p:DebugType=None `
