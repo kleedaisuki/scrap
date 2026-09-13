@@ -35,6 +35,12 @@ public sealed class DaemonProcessLauncher : IDaemonProcessLauncher
     /// <inheritdoc />
     public void Start()
     {
+        if (OperatingSystem.IsWindows())
+        {
+            StartWindows();
+            return;
+        }
+
         var startInfo = new ProcessStartInfo
         {
             FileName = _executablePath,
@@ -74,6 +80,36 @@ public sealed class DaemonProcessLauncher : IDaemonProcessLauncher
         catch (Exception exception) when (exception is InvalidOperationException or Win32Exception or IOException or UnauthorizedAccessException)
         {
             process?.Dispose();
+            throw new DaemonProcessException("The Scrap daemon process could not be started.", exception);
+        }
+    }
+
+    /// <summary>
+    /// 通过 Windows ShellExecute 启动隐藏 daemon，避免继承 CLI 的重定向标准句柄。
+    /// Starts the hidden daemon through Windows ShellExecute so redirected CLI standard handles are not inherited.
+    /// </summary>
+    private void StartWindows()
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = _executablePath,
+            UseShellExecute = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+            WorkingDirectory = _workingDirectory ?? Path.GetDirectoryName(_executablePath)!,
+        };
+
+        foreach (string argument in _arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        try
+        {
+            using Process process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("The operating system returned no process handle.");
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or Win32Exception or IOException or UnauthorizedAccessException)
+        {
             throw new DaemonProcessException("The Scrap daemon process could not be started.", exception);
         }
     }

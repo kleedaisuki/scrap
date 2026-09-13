@@ -47,7 +47,7 @@ remove_path_block() {
         $0 == end { if (!saw_begin || saw_end) invalid = 1; saw_end = 1 }
         END { exit !(saw_begin && saw_end && !invalid) }
     ' "$profile"; then
-        echo "PATH 标记残缺或顺序无效，已保留 $profile。PATH markers are incomplete or invalid; preserved $profile." >&2
+        echo "PATH 标记残缺或顺序无效，已保留 ${profile}。PATH markers are incomplete or invalid; preserved $profile." >&2
         return 0
     fi
 
@@ -70,7 +70,7 @@ remove_path_block() {
     if ! cat "$temp" > "$profile"; then
         cat "$backup" > "$profile" 2>/dev/null || true
         rm -f "$temp" "$backup"
-        echo "无法更新 $profile；已尝试恢复原内容。Could not update $profile; restoration was attempted." >&2
+        echo "无法更新 ${profile}；已尝试恢复原内容。Could not update $profile; restoration was attempted." >&2
         return 1
     fi
     rm -f "$temp" "$backup"
@@ -101,5 +101,5 @@ fi
 
 for program in $programs; do rm -f "$bin_dir/$program"; done
 rmdir "$bin_dir" 2>/dev/null || true
-echo "scrap 程序已卸载；data 与配置已保留在 $scrap_root。"
+echo "scrap 程序已卸载；data 与配置已保留在 ${scrap_root}。"
 echo "scrap programs were removed; data and configuration remain in $scrap_root."
