@@ -80,6 +80,26 @@ public sealed record RecordReencryption(string RecordId, long ExpectedRevision, 
 public sealed record StoredRecordSetResult(StoredRecord Record, bool Created);
 
 /// <summary>
+/// staged set 在事务外取得的 snapshot 与永久 ID；密文可据 <see cref="Identity"/> 在锁外生成。<br/>
+/// Snapshot and permanent ID obtained outside a write transaction for staged set; ciphertext can be generated from <see cref="Identity"/> without holding the lock.
+/// </summary>
+/// <param name="Identity">用于 AAD 的最终 record 身份。 / Final record identity used for AAD.</param>
+/// <param name="ScopeId">准备时观察到的内部 scope ID。 / Internal scope ID observed during preparation.</param>
+/// <param name="IsNew">准备时 record 是否不存在。 / Whether the record was absent during preparation.</param>
+/// <param name="CurrentRevision">已有 record 的 revision；新 record 为 null。 / Existing record revision; null for a new record.</param>
+/// <param name="CurrentPresentation">已有展示策略；新 record 为 null。 / Existing presentation policy; null for a new record.</param>
+/// <param name="CreatedAt">已有创建时间或为新 record 预留的创建时间。 / Existing creation time or reserved creation time for a new record.</param>
+/// <param name="CurrentUpdatedAt">已有更新时间；新 record 为 null。 / Existing update time; null for a new record.</param>
+public sealed record RecordSetPreparation(
+    RecordIdentity Identity,
+    long ScopeId,
+    bool IsNew,
+    long? CurrentRevision,
+    int? CurrentPresentation,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? CurrentUpdatedAt);
+
+/// <summary>
 /// scope 重命名的原子结果。<br/>Atomic result of a scope rename.
 /// </summary>
 /// <param name="Scope">重命名后的 scope。 / Renamed scope.</param>

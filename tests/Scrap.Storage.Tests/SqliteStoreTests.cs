@@ -192,6 +192,59 @@ public sealed class SqliteStoreTests
     }
 
     [Fact]
+    public void StagedSetEncryptionCallbackRunsWithoutAWriteTransaction()
+    {
+        using var database = TestDatabase.Create();
+        database.Store.CreateScope("dev");
+        var competingWriterAcquired = false;
+
+        var result = database.Store.SetRecordStaged("dev", "key", 0, _ =>
+        {
+            using var connection = database.OpenRawConnection();
+            using var transaction = connection.BeginTransaction(deferred: false);
+            competingWriterAcquired = true;
+            transaction.Rollback();
+            return Protected("encrypted outside transaction");
+        });
+
+        Assert.True(competingWriterAcquired);
+        Assert.True(result.Created);
+        AssertRecordEquivalent(result.Record, database.Store.GetRecord("dev", "key"));
+    }
+
+    [Fact]
+    public void StagedSetEncryptionFailureLeavesNoPartialRecord()
+    {
+        using var database = TestDatabase.Create();
+        database.Store.CreateScope("dev");
+
+        Assert.Throws<InvalidOperationException>(() => database.Store.SetRecordStaged(
+            "dev",
+            "key",
+            0,
+            _ => throw new InvalidOperationException("synthetic encryption failure")));
+
+        Assert.Null(database.Store.GetRecord("dev", "key"));
+    }
+
+    [Fact]
+    public void CommitPreparedRecordRejectsRaceWithoutOverwritingWinner()
+    {
+        using var database = TestDatabase.Create();
+        database.Store.CreateScope("dev");
+        var preparation = database.Store.PrepareSetRecord("dev", "key");
+        var winner = database.Store.SetRecord("dev", "key", 0, _ => Protected("winner"));
+
+        var exception = Assert.Throws<StorageConflictException>(() => database.Store.CommitPreparedRecord(
+            preparation,
+            Protected("loser"),
+            presentation: 1));
+
+        Assert.Equal(StorageConflictKind.Concurrency, exception.Kind);
+        AssertRecordEquivalent(winner, database.Store.GetRecord("dev", "key"));
+    }
+
+    [Fact]
     public void RenameRecordIsAtomicAndKeepsId()
     {
         using var database = TestDatabase.Create();

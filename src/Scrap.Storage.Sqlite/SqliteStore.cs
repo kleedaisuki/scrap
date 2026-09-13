@@ -8,8 +8,8 @@ namespace Scrap.Storage.Sqlite;
 /// Implements scrap's SQLite persistence boundary with short ADO.NET transactions. Each operation owns its connection and exposes neither connections nor rows.
 /// </summary>
 /// <remarks>
-/// 调用 CRUD 前必须执行 <see cref="Initialize"/>。加密回调在事务中同步执行，不得进行 IPC、UI 或 key-store I/O。<br/>
-/// Call <see cref="Initialize"/> before CRUD. Encryption callbacks run synchronously in a transaction and must not perform IPC, UI, or key-store I/O.
+/// 调用 CRUD 前必须执行 <see cref="Initialize"/>。set 回调在 write transaction 外执行；rename callback 重载只允许同步内存 AEAD，长操作应使用 staged 重载。<br/>
+/// Call <see cref="Initialize"/> before CRUD. Set callbacks run outside write transactions; rename callback overloads permit only synchronous in-memory AEAD, while long work should use staged overloads.
 /// </remarks>
 public sealed class SqliteStore
 {
@@ -200,35 +200,125 @@ public sealed class SqliteStore
         long? expectedRevision = null,
         DateTimeOffset? expectedUpdatedAt = null)
     {
+        ArgumentNullException.ThrowIfNull(protect);
+        return SetRecordStaged(scopeName, key, presentation, protect, now, expectedRevision, expectedUpdatedAt);
+    }
+
+    /// <summary>
+    /// 在不持有 write transaction 的连接上读取 set snapshot，并为新 record 预留永久随机 ID。<br/>
+    /// Reads a set snapshot without a write transaction and reserves a permanent random ID for a new record.
+    /// </summary>
+    public RecordSetPreparation PrepareSetRecord(string scopeName, string key, DateTimeOffset? now = null)
+    {
         ValidateName(scopeName, nameof(scopeName));
         ValidateName(key, nameof(key));
-        ArgumentNullException.ThrowIfNull(protect);
+        using var connection = OpenConnection();
+        var scope = FindScope(connection, transaction: null, scopeName)
+            ?? throw new StorageNotFoundException(StorageEntityKind.Scope, scopeName);
+        var existing = FindRecord(connection, transaction: null, scope.Id, scopeName, key);
+        if (existing is null)
+        {
+            return new RecordSetPreparation(
+                new RecordIdentity(CurrentSchemaVersion, Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture), scopeName, key),
+                scope.Id,
+                IsNew: true,
+                CurrentRevision: null,
+                CurrentPresentation: null,
+                NormalizeTimestamp(now),
+                CurrentUpdatedAt: null);
+        }
+
+        return new RecordSetPreparation(
+            existing.Identity,
+            scope.Id,
+            IsNew: false,
+            existing.Revision,
+            existing.Presentation,
+            existing.CreatedAt,
+            existing.UpdatedAt);
+    }
+
+    /// <summary>
+    /// 在短 IMMEDIATE 事务中 CAS 提交事务外生成的密文；snapshot 已变化时原子冲突。<br/>
+    /// CAS-commits ciphertext generated outside the transaction in a short IMMEDIATE transaction; a changed snapshot conflicts atomically.
+    /// </summary>
+    public StoredRecordSetResult CommitPreparedRecord(
+        RecordSetPreparation preparation,
+        ProtectedValue value,
+        int presentation,
+        DateTimeOffset? updatedAt = null,
+        long? expectedRevision = null,
+        DateTimeOffset? expectedUpdatedAt = null)
+    {
+        ValidatePreparation(preparation);
+        value = ValidateProtectedValue(value);
+        var timestamp = NormalizeTimestamp(updatedAt);
         using var connection = OpenConnection();
         using var transaction = connection.BeginTransaction(deferred: false);
-        var scope = FindScope(connection, transaction, scopeName) ?? throw new StorageNotFoundException(StorageEntityKind.Scope, scopeName);
-        var existing = FindRecord(connection, transaction, scope.Id, scopeName, key);
-        CheckConcurrency(existing, expectedRevision, expectedUpdatedAt, $"{scopeName}/{key}");
-        var identity = new RecordIdentity(
-            CurrentSchemaVersion,
-            existing?.Identity.RecordId ?? Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture),
-            scopeName,
-            key);
-        var value = ValidateProtectedValue(protect(identity));
-        var timestamp = NormalizeTimestamp(now);
+        var scope = FindScope(connection, transaction, preparation.Identity.ScopeName)
+            ?? throw new StorageNotFoundException(StorageEntityKind.Scope, preparation.Identity.ScopeName);
+        if (scope.Id != preparation.ScopeId)
+        {
+            throw new StorageConflictException(StorageConflictKind.Concurrency, "Scope changed while record ciphertext was prepared.");
+        }
+
+        var existing = FindRecord(
+            connection,
+            transaction,
+            scope.Id,
+            preparation.Identity.ScopeName,
+            preparation.Identity.Key);
+        EnsurePreparationStillCurrent(preparation, existing);
+        CheckConcurrency(existing, expectedRevision, expectedUpdatedAt, $"{preparation.Identity.ScopeName}/{preparation.Identity.Key}");
         var revision = (existing?.Revision ?? 0) + 1;
         if (existing is null)
         {
-            InsertRecord(connection, transaction, scope.Id, identity, value, presentation, revision, timestamp);
+            InsertRecord(
+                connection,
+                transaction,
+                scope.Id,
+                preparation.Identity,
+                value,
+                presentation,
+                revision,
+                preparation.CreatedAt,
+                timestamp);
         }
         else
         {
-            UpdateRecord(connection, transaction, identity.RecordId, value, presentation, revision, timestamp);
+            UpdateRecord(connection, transaction, preparation.Identity.RecordId, value, presentation, revision, timestamp);
         }
 
         transaction.Commit();
         return new StoredRecordSetResult(
-            new StoredRecord(identity, scope.Id, value, presentation, revision, existing?.CreatedAt ?? timestamp, timestamp),
+            new StoredRecord(
+                preparation.Identity,
+                scope.Id,
+                value,
+                presentation,
+                revision,
+                preparation.CreatedAt,
+                timestamp),
             existing is null);
+    }
+
+    /// <summary>
+    /// 兼容 callback 的 staged set：先 prepare，再在无事务状态调用加密，最后短事务 CAS commit。<br/>
+    /// Callback-compatible staged set: prepare first, encrypt without a transaction, then CAS-commit in a short transaction.
+    /// </summary>
+    public StoredRecordSetResult SetRecordStaged(
+        string scopeName,
+        string key,
+        int presentation,
+        Func<RecordIdentity, ProtectedValue> protect,
+        DateTimeOffset? now = null,
+        long? expectedRevision = null,
+        DateTimeOffset? expectedUpdatedAt = null)
+    {
+        ArgumentNullException.ThrowIfNull(protect);
+        var preparation = PrepareSetRecord(scopeName, key, now);
+        var value = ValidateProtectedValue(protect(preparation.Identity));
+        return CommitPreparedRecord(preparation, value, presentation, now, expectedRevision, expectedUpdatedAt);
     }
 
     /// <summary>精确读取 `(scope, key)`；不存在返回 null。 / Reads exact `(scope, key)`, returning null when absent.</summary>
@@ -241,7 +331,7 @@ public sealed class SqliteStore
         return scope is null ? null : FindRecord(connection, transaction: null, scope.Id, scopeName, key);
     }
 
-    /// <summary>以 ordinal/BINARY key 顺序列出 scope 的加密 records。 / Lists encrypted records by ordinal/BINARY key.</summary>
+    /// <summary>以 .NET ordinal key 顺序列出 scope 的加密 records。 / Lists encrypted records by .NET ordinal key order.</summary>
     public IReadOnlyList<StoredRecord> ListRecords(string scopeName)
     {
         ValidateName(scopeName, nameof(scopeName));
@@ -862,7 +952,8 @@ public sealed class SqliteStore
         ProtectedValue value,
         int presentation,
         long revision,
-        DateTimeOffset timestamp)
+        DateTimeOffset createdAt,
+        DateTimeOffset updatedAt)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -880,8 +971,8 @@ public sealed class SqliteStore
         AddProtectedValueParameters(command, value);
         command.Parameters.AddWithValue("$presentation", presentation);
         command.Parameters.AddWithValue("$revision", revision);
-        command.Parameters.AddWithValue("$createdAt", FormatTimestamp(timestamp));
-        command.Parameters.AddWithValue("$updatedAt", FormatTimestamp(timestamp));
+        command.Parameters.AddWithValue("$createdAt", FormatTimestamp(createdAt));
+        command.Parameters.AddWithValue("$updatedAt", FormatTimestamp(updatedAt));
         command.ExecuteNonQuery();
     }
 
@@ -962,6 +1053,55 @@ public sealed class SqliteStore
             (record is null || record.UpdatedAt != expectedUpdatedAt.Value.ToUniversalTime()))
         {
             throw new StorageConflictException(StorageConflictKind.Concurrency, $"Record updated_at does not match: {identity}");
+        }
+    }
+
+    /// <summary>验证调用方没有伪造内部不变量不一致的 preparation。 / Validates that a caller-supplied preparation preserves internal invariants.</summary>
+    private static void ValidatePreparation(RecordSetPreparation preparation)
+    {
+        ArgumentNullException.ThrowIfNull(preparation);
+        ArgumentNullException.ThrowIfNull(preparation.Identity);
+        ValidateName(preparation.Identity.RecordId, nameof(preparation));
+        ValidateName(preparation.Identity.ScopeName, nameof(preparation));
+        ValidateName(preparation.Identity.Key, nameof(preparation));
+        if (preparation.Identity.SchemaVersion != CurrentSchemaVersion || preparation.ScopeId < 1)
+        {
+            throw new ArgumentException("Set preparation has an unsupported schema version or scope ID.", nameof(preparation));
+        }
+
+        var newShapeIsValid = preparation.IsNew &&
+            preparation.CurrentRevision is null &&
+            preparation.CurrentPresentation is null &&
+            preparation.CurrentUpdatedAt is null;
+        var existingShapeIsValid = !preparation.IsNew &&
+            preparation.CurrentRevision > 0 &&
+            preparation.CurrentPresentation is not null &&
+            preparation.CurrentUpdatedAt is not null;
+        if (!newShapeIsValid && !existingShapeIsValid)
+        {
+            throw new ArgumentException("Set preparation snapshot fields are inconsistent.", nameof(preparation));
+        }
+    }
+
+    /// <summary>在 write transaction 中确认 preparation 的 snapshot 仍是当前状态。 / Confirms inside the write transaction that the preparation snapshot is still current.</summary>
+    private static void EnsurePreparationStillCurrent(RecordSetPreparation preparation, StoredRecord? existing)
+    {
+        if (preparation.IsNew)
+        {
+            if (existing is not null)
+            {
+                throw new StorageConflictException(StorageConflictKind.Concurrency, "Record was created while ciphertext was prepared.");
+            }
+
+            return;
+        }
+
+        if (existing is null ||
+            !string.Equals(existing.Identity.RecordId, preparation.Identity.RecordId, StringComparison.Ordinal) ||
+            existing.Revision != preparation.CurrentRevision ||
+            existing.UpdatedAt != preparation.CurrentUpdatedAt)
+        {
+            throw new StorageConflictException(StorageConflictKind.Concurrency, "Record changed while ciphertext was prepared.");
         }
     }
 
