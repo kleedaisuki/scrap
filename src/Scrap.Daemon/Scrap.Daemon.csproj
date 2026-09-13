@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <AssemblyName>scrapd</AssemblyName>
+    <RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
+    <RootNamespace>Scrap.Daemon</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Scrap.Crypto\Scrap.Crypto.csproj" />
+    <ProjectReference Include="..\Scrap.Domain\Scrap.Domain.csproj" />
+    <ProjectReference Include="..\Scrap.Platform\Scrap.Platform.csproj" />
+    <ProjectReference Include="..\Scrap.Protocol\Scrap.Protocol.csproj" />
+    <ProjectReference Include="..\Scrap.Storage.Sqlite\Scrap.Storage.Sqlite.csproj" />
+  </ItemGroup>
+
+</Project>
