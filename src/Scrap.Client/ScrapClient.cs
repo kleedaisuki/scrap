@@ -74,6 +74,59 @@ public sealed class ScrapClient : IAsyncDisposable
     }
 
     /// <summary>
+    /// 仅连接已运行的当前用户 daemon；未运行或正在关闭时返回 null，绝不启动进程或创建 profile 目录。
+    /// / Connects only to an already-running daemon for the current user; returns null when absent or shutting down,
+    /// and never launches a process or creates profile directories.
+    /// </summary>
+    /// <param name="options">可选的有界连接与 framing 策略。 / Optional bounded connection and framing policy.</param>
+    /// <param name="cancellationToken">取消单次探测的标记。 / Token that cancels the single probe.</param>
+    /// <returns>已连接 client；daemon 未运行时为 null。 / A connected client, or null when the daemon is not running.</returns>
+    /// <remarks>
+    /// 此入口适合 <c>shutdown --if-running</c> 等观察性操作。返回的 client 在连接随后丢失时仍不会启动 daemon。
+    /// / This entry point suits observational operations such as <c>shutdown --if-running</c>. The returned client
+    /// still never launches a daemon if its connection is subsequently lost.
+    /// </remarks>
+    public static async Task<ScrapClient?> TryConnectExistingAsync(
+        ScrapClientOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ScrapClientOptions validatedOptions = (options ?? new ScrapClientOptions()).Validate();
+
+        try
+        {
+            ScrapPathLayout paths = ScrapPathLayout.ForCurrentUser();
+            IpcEndpointDescriptor endpoint = IpcEndpointDescriptor.Create(paths);
+            return await TryConnectExistingAsync(endpoint, validatedOptions, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new ScrapConnectionException("The existing Scrap IPC endpoint could not be inspected.", exception);
+        }
+    }
+
+    /// <summary>
+    /// 仅探测显式 endpoint，不初始化其目录且永不启动进程。
+    /// / Probes only an explicit endpoint, without initializing its directories or ever launching a process.
+    /// </summary>
+    /// <param name="endpoint">要探测的现有 endpoint。 / Existing endpoint to probe.</param>
+    /// <param name="options">可选的有界连接与 framing 策略。 / Optional bounded connection and framing policy.</param>
+    /// <param name="cancellationToken">取消单次探测的标记。 / Token that cancels the single probe.</param>
+    /// <returns>已连接 client；daemon 未运行时为 null。 / A connected client, or null when the daemon is not running.</returns>
+    public static async Task<ScrapClient?> TryConnectExistingAsync(
+        IpcEndpointDescriptor endpoint,
+        ScrapClientOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(endpoint);
+        ScrapClientOptions validatedOptions = (options ?? new ScrapClientOptions()).Validate();
+        var connectionFactory = new DaemonConnectionFactory(endpoint, validatedOptions);
+        NamedPipeClientStream? stream = await connectionFactory.TryConnectExistingAsync(
+            (candidate, token) => NegotiateVersionAsync(candidate, validatedOptions.MaxFrameSize, token),
+            cancellationToken).ConfigureAwait(false);
+        return stream is null ? null : new ScrapClient(connectionFactory, validatedOptions, stream);
+    }
+
+    /// <summary>
     /// 使用显式 endpoint 与 launcher 连接，便于自定义 profile 和集成测试。
     /// / Connects through an explicit endpoint and launcher, supporting custom profiles and integration tests.
     /// </summary>

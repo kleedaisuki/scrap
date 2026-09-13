@@ -16,7 +16,7 @@ internal sealed class DaemonConnectionFactory
     private static readonly TimeSpan MaximumRelaunchDelay = TimeSpan.FromSeconds(2);
 
     private readonly IpcEndpointDescriptor _endpoint;
-    private readonly IDaemonProcessLauncher _launcher;
+    private readonly IDaemonProcessLauncher? _launcher;
     private readonly ScrapClientOptions _options;
 
     /// <summary>
@@ -29,10 +29,45 @@ internal sealed class DaemonConnectionFactory
         IpcEndpointDescriptor endpoint,
         IDaemonProcessLauncher launcher,
         ScrapClientOptions options)
+        : this(endpoint, options)
+    {
+        _launcher = launcher ?? throw new ArgumentNullException(nameof(launcher));
+    }
+
+    /// <summary>
+    /// 初始化永不启动进程的 existing-only 连接工厂。 / Initializes an existing-only connection factory that never launches a process.
+    /// </summary>
+    /// <param name="endpoint">当前用户 IPC endpoint。 / The current user's IPC endpoint.</param>
+    /// <param name="options">已验证的连接选项。 / Validated connection options.</param>
+    public DaemonConnectionFactory(IpcEndpointDescriptor endpoint, ScrapClientOptions options)
     {
         _endpoint = endpoint ?? throw new ArgumentNullException(nameof(endpoint));
-        _launcher = launcher ?? throw new ArgumentNullException(nameof(launcher));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+    }
+
+    /// <summary>
+    /// 对现有 daemon 执行一次有界的连接与 readiness 探测，绝不启动进程。
+    /// / Performs one bounded connection and readiness probe against an existing daemon and never launches a process.
+    /// </summary>
+    /// <param name="readinessProbe">在返回前验证协议就绪状态的回调。 / Callback that verifies protocol readiness before returning.</param>
+    /// <param name="cancellationToken">取消探测的标记。 / Token that cancels the probe.</param>
+    /// <returns>daemon 就绪时返回连接，否则返回 null。 / A connection when the daemon is ready; otherwise null.</returns>
+    public async ValueTask<NamedPipeClientStream?> TryConnectExistingAsync(
+        Func<NamedPipeClientStream, CancellationToken, ValueTask> readinessProbe,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(readinessProbe);
+        try
+        {
+            return await ConnectOnceAsync(
+                readinessProbe,
+                _options.InitialConnectTimeout,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (IsRetryableConnectionFailure(exception))
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -58,6 +93,11 @@ internal sealed class DaemonConnectionFactory
         catch (Exception exception) when (IsRetryableConnectionFailure(exception))
         {
             lastFailure = exception;
+        }
+
+        if (_launcher is null)
+        {
+            throw new ScrapConnectionException("The local scrap daemon is not running.", lastFailure);
         }
 
         long startedAt = Stopwatch.GetTimestamp();
@@ -114,9 +154,10 @@ internal sealed class DaemonConnectionFactory
     /// </summary>
     private void StartDaemon()
     {
+        Debug.Assert(_launcher is not null, "Existing-only connection factories must never launch a daemon.");
         try
         {
-            _launcher.Start();
+            _launcher!.Start();
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
