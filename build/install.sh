@@ -107,7 +107,7 @@ add_path_block() {
 
 for program in $programs; do
     if [ ! -f "$payload_dir/$program" ]; then
-        echo "安装包不完整，缺少 $program。Package is incomplete: $program is missing." >&2
+        echo "安装包不完整，缺少 ${program}。Package is incomplete: $program is missing." >&2
         exit 1
     fi
 done
