@@ -276,23 +276,33 @@ public static class CliApplication
         ICliEnvironment environment,
         CancellationToken cancellationToken)
     {
-        var line = CommandLine.Parse(args, NoColor);
+        var line = CommandLine.Parse(args, NoColor, "--if-running");
         line.RequireOperands(1);
 
         switch (line.Operands[0])
         {
             case "ping":
+                Reject(line, "--if-running");
                 await client.PingAsync(cancellationToken).ConfigureAwait(false);
                 await WriteLineAsync(environment.Output, "pong").ConfigureAwait(false);
                 return ExitCodes.Success;
             case "version":
+                Reject(line, "--if-running");
                 var version = await client.GetDaemonVersionAsync(cancellationToken).ConfigureAwait(false);
                 await WriteLineAsync(
                     environment.Output,
                     $"{version.ApplicationVersion}\tprotocol {version.MinProtocolVersion}..{version.MaxProtocolVersion}").ConfigureAwait(false);
                 return ExitCodes.Success;
             case "shutdown":
-                await client.ShutdownDaemonAsync(cancellationToken).ConfigureAwait(false);
+                if (line.Has("--if-running"))
+                {
+                    _ = await client.ShutdownIfRunningAsync(cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    await client.ShutdownDaemonAsync(cancellationToken).ConfigureAwait(false);
+                }
+
                 return ExitCodes.Success;
             default:
                 throw new CliUsageException("Unknown daemon subcommand.");
@@ -447,7 +457,7 @@ public static class CliApplication
         Daemon commands:
           scrap daemon ping
           scrap daemon version
-          scrap daemon shutdown
+          scrap daemon shutdown [--if-running]
 
         Global options:
           --no-color   Disable ANSI color output.

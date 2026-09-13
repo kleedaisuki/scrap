@@ -141,6 +141,27 @@ internal sealed class ProtocolScrapClientAdapter : IScrapClient, IAsyncDisposabl
             _ = await value.ShutdownAsync(cancellationToken).ConfigureAwait(false);
         }, cancellationToken);
 
+    /// <inheritdoc />
+    public async Task<bool> ShutdownIfRunningAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using ProtocolClient? existing = await ProtocolClient.TryConnectExistingAsync(
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (existing is null)
+            {
+                return false;
+            }
+
+            _ = await existing.ShutdownAsync(cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            throw Translate(exception);
+        }
+    }
+
     /// <summary>释放共享协议 client 与 pipe。/ Releases the shared protocol client and pipe.</summary>
     public async ValueTask DisposeAsync()
     {

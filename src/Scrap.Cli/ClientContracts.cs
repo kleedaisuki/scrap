@@ -116,4 +116,6 @@ public interface IScrapClient
     Task<DaemonVersion> GetDaemonVersionAsync(CancellationToken cancellationToken);
     /// <summary>请求 daemon 有序退出。/ Requests an orderly daemon shutdown.</summary>
     Task ShutdownDaemonAsync(CancellationToken cancellationToken);
+    /// <summary>仅在 daemon 已运行时请求退出；不存在是成功 no-op。/ Requests shutdown only when already running; absence is a successful no-op.</summary>
+    Task<bool> ShutdownIfRunningAsync(CancellationToken cancellationToken);
 }
