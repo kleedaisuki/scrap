@@ -21,6 +21,18 @@ public static class ProtocolConstants
     public const int FrameHeaderSize = sizeof(uint);
 
     /// <summary>
+    /// <c>scope.list</c> 未指定 limit 时使用的默认页大小。
+    /// / Gets the default page size used when <c>scope.list</c> does not specify a limit.
+    /// </summary>
+    public const int DefaultScopeListPageSize = 100;
+
+    /// <summary>
+    /// <c>scope.list</c> 单页允许的最大 scope 数量。
+    /// / Gets the maximum number of scopes permitted in one <c>scope.list</c> page.
+    /// </summary>
+    public const int MaxScopeListPageSize = 500;
+
+    /// <summary>
     /// <c>record.list</c> 未指定 limit 时使用的默认页大小。
     /// / Gets the default page size used when <c>record.list</c> does not specify a limit.
     /// </summary>
@@ -30,5 +42,5 @@ public static class ProtocolConstants
     /// <c>record.list</c> 单页允许的最大 record 数量。
     /// / Gets the maximum number of records permitted in one <c>record.list</c> page.
     /// </summary>
-    public const int MaxRecordListPageSize = 1000;
+    public const int MaxRecordListPageSize = 500;
 }

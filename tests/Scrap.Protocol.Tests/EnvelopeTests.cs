@@ -308,4 +308,78 @@ public sealed class EnvelopeTests
             ? ProtocolJson.Deserialize<RecordRenameParams>(Encoding.UTF8.GetBytes(json))
             : ProtocolJson.Deserialize<RecordDeleteParams>(Encoding.UTF8.GetBytes(json)));
     }
+
+    [Fact]
+    public void ScopeListParams_OldEmptyConstructorAndWireUseDefaultPageSize()
+    {
+        var constructed = new ScopeListParams();
+        ScopeListParams deserialized = ProtocolJson.Deserialize<ScopeListParams>(
+            Encoding.UTF8.GetBytes("{}"));
+
+        Assert.Null(constructed.AfterName);
+        Assert.Equal(ProtocolConstants.DefaultScopeListPageSize, constructed.Limit);
+        Assert.Equal(constructed, deserialized);
+    }
+
+    [Fact]
+    public void ScopeListPagination_RoundTripsOrdinalCursor()
+    {
+        var parameters = new ScopeListParams("API", 25);
+        var result = new ScopeListResult([], "api");
+
+        string parametersJson = Encoding.UTF8.GetString(ProtocolJson.Serialize(parameters));
+        string resultJson = Encoding.UTF8.GetString(ProtocolJson.Serialize(result));
+
+        Assert.Contains("\"afterName\":\"API\"", parametersJson, StringComparison.Ordinal);
+        Assert.Contains("\"limit\":25", parametersJson, StringComparison.Ordinal);
+        Assert.Contains("\"nextCursor\":\"api\"", resultJson, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(501)]
+    public void ListParams_RejectOutOfRangeLimitsFromConstructorAndWire(int invalidLimit)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ScopeListParams(Limit: invalidLimit));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new RecordListParams("scope", Limit: invalidLimit));
+
+        Assert.Throws<JsonException>(() => ProtocolJson.Deserialize<ScopeListParams>(
+            Encoding.UTF8.GetBytes($$"""{"limit":{{invalidLimit}}}""")));
+        Assert.Throws<JsonException>(() => ProtocolJson.Deserialize<RecordListParams>(
+            Encoding.UTF8.GetBytes($$"""{"scope":"s","limit":{{invalidLimit}}}""")));
+    }
+
+    [Fact]
+    public void MaximumScopePage_WithWorstCaseEscapedNamesFitsDefaultFrame()
+    {
+        string maximumEscapedName = new('\u0001', 256);
+        ScopeDto[] scopes = Enumerable
+            .Range(0, ProtocolConstants.MaxScopeListPageSize)
+            .Select(_ => new ScopeDto(maximumEscapedName))
+            .ToArray();
+
+        byte[] payload = ProtocolJson.Serialize(new ScopeListResult(scopes, maximumEscapedName));
+
+        Assert.True(payload.Length < ProtocolConstants.DefaultMaxFrameSize, $"Payload was {payload.Length} bytes.");
+    }
+
+    [Fact]
+    public void MaximumRecordPage_WithWorstCaseEscapedKeysFitsDefaultFrame()
+    {
+        string maximumEscapedKey = new('\u0001', 256);
+        RecordSummaryDto[] records = Enumerable
+            .Range(0, ProtocolConstants.MaxRecordListPageSize)
+            .Select(index => new RecordSummaryDto(
+                "s",
+                maximumEscapedKey,
+                RecordPresentation.Masked,
+                DateTimeOffset.UnixEpoch,
+                DateTimeOffset.UnixEpoch,
+                index + 1))
+            .ToArray();
+
+        byte[] payload = ProtocolJson.Serialize(new RecordListResult(records, maximumEscapedKey));
+
+        Assert.True(payload.Length < ProtocolConstants.DefaultMaxFrameSize, $"Payload was {payload.Length} bytes.");
+    }
 }

@@ -179,7 +179,19 @@ public sealed record RecordDeleteResult;
 public sealed record RecordListParams(
     string Scope,
     string? AfterKey = null,
-    int Limit = ProtocolConstants.DefaultRecordListPageSize);
+    int Limit = ProtocolConstants.DefaultRecordListPageSize)
+{
+    /// <summary>
+    /// 获取范围为 1 到 <see cref="ProtocolConstants.MaxRecordListPageSize"/> 的页大小。
+    /// / Gets a page size from 1 through <see cref="ProtocolConstants.MaxRecordListPageSize"/>.
+    /// </summary>
+    public int Limit { get; init; } = Limit is > 0 and <= ProtocolConstants.MaxRecordListPageSize
+        ? Limit
+        : throw new ArgumentOutOfRangeException(
+            nameof(Limit),
+            Limit,
+            $"Record list limit must be between 1 and {ProtocolConstants.MaxRecordListPageSize}.");
+}
 
 /// <summary>
 /// 表示 <c>record.list</c> 结果，始终不含 value。
@@ -187,6 +199,10 @@ public sealed record RecordListParams(
 /// </summary>
 /// <param name="Records">record 元数据。 / Record metadata.</param>
 /// <param name="NextCursor">存在下一页时应作为后续 <see cref="RecordListParams.AfterKey"/> 传回的 key；末页为 null。 / Key to pass back as <see cref="RecordListParams.AfterKey"/> when another page exists; null on the final page.</param>
+/// <remarks>
+/// 为保证响应不超过 frame 上限，daemon 即使尚未达到请求 limit，也可提前结束本页并返回 cursor。
+/// / To keep the response below the frame limit, the daemon may end a page early and return a cursor before reaching the requested limit.
+/// </remarks>
 public sealed record RecordListResult(
     IReadOnlyList<RecordSummaryDto> Records,
     string? NextCursor = null);

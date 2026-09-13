@@ -8,15 +8,39 @@ namespace Scrap.Protocol;
 public sealed record ScopeDto(string Name);
 
 /// <summary>
-/// 表示 <c>scope.list</c> 的空参数。 / Represents the empty parameters for <c>scope.list</c>.
+/// 表示 <c>scope.list</c> 的 ordinal keyset pagination 参数。
+/// / Represents ordinal keyset-pagination parameters for <c>scope.list</c>.
 /// </summary>
-public sealed record ScopeListParams;
+/// <param name="AfterName">上一页最后一个 scope 名称；null 表示第一页。 / Last scope name from the previous page; null selects the first page.</param>
+/// <param name="Limit">本页最多返回的 scope 数量。 / Maximum scopes to return in this page.</param>
+public sealed record ScopeListParams(
+    string? AfterName = null,
+    int Limit = ProtocolConstants.DefaultScopeListPageSize)
+{
+    /// <summary>
+    /// 获取范围为 1 到 <see cref="ProtocolConstants.MaxScopeListPageSize"/> 的页大小。
+    /// / Gets a page size from 1 through <see cref="ProtocolConstants.MaxScopeListPageSize"/>.
+    /// </summary>
+    public int Limit { get; init; } = Limit is > 0 and <= ProtocolConstants.MaxScopeListPageSize
+        ? Limit
+        : throw new ArgumentOutOfRangeException(
+            nameof(Limit),
+            Limit,
+            $"Scope list limit must be between 1 and {ProtocolConstants.MaxScopeListPageSize}.");
+}
 
 /// <summary>
 /// 表示 <c>scope.list</c> 的结果。 / Represents the result of <c>scope.list</c>.
 /// </summary>
 /// <param name="Scopes">按 daemon 定义的稳定顺序返回的 scope。 / Scopes in the daemon-defined stable order.</param>
-public sealed record ScopeListResult(IReadOnlyList<ScopeDto> Scopes);
+/// <param name="NextCursor">存在下一页时应作为后续 <see cref="ScopeListParams.AfterName"/> 传回的名称；末页为 null。 / Name to pass back as <see cref="ScopeListParams.AfterName"/> when another page exists; null on the final page.</param>
+/// <remarks>
+/// daemon 必须按名称的 ordinal 顺序分页。为保证响应不超过 frame 上限，即使尚未达到请求 limit，也可提前结束本页并返回 cursor。
+/// / The daemon must paginate names in ordinal order. To keep the response below the frame limit, it may end a page early and return a cursor before reaching the requested limit.
+/// </remarks>
+public sealed record ScopeListResult(
+    IReadOnlyList<ScopeDto> Scopes,
+    string? NextCursor = null);
 
 /// <summary>
 /// 表示 <c>scope.create</c> 参数。 / Represents <c>scope.create</c> parameters.
