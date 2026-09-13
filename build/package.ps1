@@ -31,21 +31,23 @@ $payloadRoot = Join-Path $packageRoot "payload"
 $isWindowsTarget = $RuntimeIdentifier.StartsWith("win-", [StringComparison]::Ordinal)
 $suffix = if ($isWindowsTarget) { ".exe" } else { "" }
 
-# 使用稳定的 userspace 名称发布单个入口，且不修改项目文件。
-# Publishes one executable with its public userspace name without changing project files.
+# 将项目的单文件 apphost 重命名为稳定 userspace 名称；apphost 本身不依赖文件名。
+# Renames the project's single-file apphost to its stable userspace name; apphosts do not depend on their filename.
+# 不把 AssemblyName 作为全局 MSBuild 属性传入，否则它还会污染 ProjectReference 输出。
+# AssemblyName is deliberately not passed globally because that would also contaminate ProjectReference outputs.
 function Publish-EntryPoint {
     param(
         [Parameter(Mandatory)] [string] $Project,
-        [Parameter(Mandatory)] [string] $AssemblyName
+        [Parameter(Mandatory)] [string] $BuildName,
+        [Parameter(Mandatory)] [string] $PublicName
     )
 
-    $publishDirectory = Join-Path $workRoot $AssemblyName
+    $publishDirectory = Join-Path $workRoot $PublicName
     dotnet publish (Join-Path $repoRoot $Project) `
         --configuration Release `
         --runtime $RuntimeIdentifier `
         --self-contained true `
         --output $publishDirectory `
-        -p:AssemblyName=$AssemblyName `
         -p:Version=$Version `
         -p:InformationalVersion=$Version `
         -p:PublishSingleFile=true `
@@ -58,20 +60,20 @@ function Publish-EntryPoint {
         throw "dotnet publish failed for $Project."
     }
 
-    $entryPoint = Join-Path $publishDirectory "$AssemblyName$suffix"
+    $entryPoint = Join-Path $publishDirectory "$BuildName$suffix"
     if (-not (Test-Path -LiteralPath $entryPoint -PathType Leaf)) {
         throw "Expected single-file entry point was not produced: $entryPoint"
     }
 
-    Copy-Item -LiteralPath $entryPoint -Destination (Join-Path $payloadRoot "$AssemblyName$suffix")
+    Copy-Item -LiteralPath $entryPoint -Destination (Join-Path $payloadRoot "$PublicName$suffix")
 }
 
 try {
     New-Item -ItemType Directory -Path $payloadRoot -Force | Out-Null
 
-    Publish-EntryPoint -Project "src/Scrap.Cli/Scrap.Cli.csproj" -AssemblyName "scrap"
-    Publish-EntryPoint -Project "src/Scrap.Daemon/Scrap.Daemon.csproj" -AssemblyName "scrapd"
-    Publish-EntryPoint -Project "src/Scrap.Gui/Scrap.Gui.csproj" -AssemblyName "scrap-gui"
+    Publish-EntryPoint -Project "src/Scrap.Cli/Scrap.Cli.csproj" -BuildName "Scrap.Cli" -PublicName "scrap"
+    Publish-EntryPoint -Project "src/Scrap.Daemon/Scrap.Daemon.csproj" -BuildName "Scrap.Daemon" -PublicName "scrapd"
+    Publish-EntryPoint -Project "src/Scrap.Gui/Scrap.Gui.csproj" -BuildName "Scrap.Gui" -PublicName "scrap-gui"
 
     Copy-Item -LiteralPath (Join-Path $repoRoot "LICENSE") -Destination $packageRoot
     if ($isWindowsTarget) {
