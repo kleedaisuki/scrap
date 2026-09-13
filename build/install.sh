@@ -59,13 +59,18 @@ staged=$transaction/new
 backup=$transaction/old
 mkdir -p "$staged" "$backup"
 chmod 700 "$transaction" "$staged" "$backup"
+backed_up=''
+installed_new=''
 
 # 在全部旧文件成功移走后再提交新文件；失败时恢复旧版本。
 # Commit new files only after every old file moved successfully; restore the old version on failure.
 rollback() {
-    for program in $programs; do
+    for program in $installed_new; do
         rm -f "$bin_dir/$program"
-        if [ -f "$backup/$program" ]; then mv "$backup/$program" "$bin_dir/$program"; fi
+    done
+    for program in $backed_up; do
+        rm -f "$bin_dir/$program"
+        mv "$backup/$program" "$bin_dir/$program"
     done
     rm -rf "$transaction"
 }
@@ -79,9 +84,15 @@ install_payload() {
         chmod 700 "$staged/$program" || return 1
     done
     for program in $programs; do
-        if [ -e "$bin_dir/$program" ]; then mv "$bin_dir/$program" "$backup/$program" || return 1; fi
+        if [ -e "$bin_dir/$program" ]; then
+            mv "$bin_dir/$program" "$backup/$program" || return 1
+            backed_up="$backed_up $program"
+        fi
     done
-    for program in $programs; do mv "$staged/$program" "$bin_dir/$program" || return 1; done
+    for program in $programs; do
+        mv "$staged/$program" "$bin_dir/$program" || return 1
+        installed_new="$installed_new $program"
+    done
 }
 
 if ! install_payload; then

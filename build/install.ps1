@@ -56,6 +56,7 @@ $transaction = Join-Path $scrapRoot (".install-" + [Guid]::NewGuid().ToString("N
 $staged = Join-Path $transaction "new"
 $backup = Join-Path $transaction "old"
 New-Item -ItemType Directory -Path $staged, $backup -Force | Out-Null
+$installedPrograms = [Collections.Generic.List[string]]::new()
 
 try {
     foreach ($program in $programs) {
@@ -69,13 +70,17 @@ try {
     }
     foreach ($program in $programs) {
         Move-Item -LiteralPath (Join-Path $staged $program) -Destination (Join-Path $binDirectory $program)
+        $installedPrograms.Add($program)
     }
 }
 catch {
-    foreach ($program in $programs) {
+    foreach ($program in $installedPrograms) {
         Remove-Item -LiteralPath (Join-Path $binDirectory $program) -Force -ErrorAction SilentlyContinue
+    }
+    foreach ($program in $programs) {
         $oldProgram = Join-Path $backup $program
         if (Test-Path -LiteralPath $oldProgram) {
+            Remove-Item -LiteralPath (Join-Path $binDirectory $program) -Force -ErrorAction SilentlyContinue
             Move-Item -LiteralPath $oldProgram -Destination (Join-Path $binDirectory $program) -Force
         }
     }
