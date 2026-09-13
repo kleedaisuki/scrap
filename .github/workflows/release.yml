@@ -271,7 +271,7 @@ jobs:
           EOF
           for prefix_lines in 0 1 2 3 4; do
             printf '%s\n' '# >>> scrap PATH / scrap PATH begin >>>' > "$HOME/.zprofile"
-            head -n "$prefix_lines" "$HOME/path-body" >> "$HOME/.zprofile"
+            awk -v count="$prefix_lines" 'NR <= count' "$HOME/path-body" >> "$HOME/.zprofile"
             printf 'user content %s must survive\n' "$prefix_lines" >> "$HOME/.zprofile"
             SHELL=/bin/zsh "$package/install.sh"
             SHELL=/bin/zsh "$package/uninstall.sh"
