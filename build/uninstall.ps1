@@ -40,9 +40,14 @@ function Remove-OwnedUserPath {
     if (-not (Test-Path -LiteralPath $pathMarker -PathType Leaf)) { return }
     $ownedEntry = (Get-Content -LiteralPath $pathMarker -Raw).Trim()
     $current = [Environment]::GetEnvironmentVariable("Path", "User") ?? ""
-    $entries = @($current.Split(';', [StringSplitOptions]::RemoveEmptyEntries) | Where-Object {
-        -not [string]::Equals($_, $ownedEntry, [StringComparison]::OrdinalIgnoreCase)
-    })
+    $entries = [Collections.Generic.List[string]]::new()
+    foreach ($entry in $current.Split(';')) { $entries.Add($entry) }
+    for ($index = $entries.Count - 1; $index -ge 0; $index--) {
+        if ([string]::Equals($entries[$index], $ownedEntry, [StringComparison]::OrdinalIgnoreCase)) {
+            $entries.RemoveAt($index)
+            break
+        }
+    }
     [Environment]::SetEnvironmentVariable("Path", ($entries -join ';'), "User")
     Remove-Item -LiteralPath $pathMarker -Force -ErrorAction SilentlyContinue
 }
