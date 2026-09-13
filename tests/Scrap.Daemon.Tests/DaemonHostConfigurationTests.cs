@@ -22,7 +22,10 @@ public sealed class DaemonHostConfigurationTests
     [InlineData("{\"daemon\":{\"idleTimeout\":\"not-a-duration-秘密🔐\",\"idlePollInterval\":\"00:00:00\",\"shutdownTimeout\":-1,\"responseWriteTimeout\":null}}")]
     public async Task InvalidConfigurationFallsBackAndVersionRemainsAvailable(string configuration)
     {
-        string root = Path.Combine(Path.GetTempPath(), $"scrap-daemon-config-{Guid.NewGuid():N}");
+        // macOS limits Unix-domain-socket paths to roughly 100 bytes; keep the test profile short.
+        // macOS 的 Unix 域套接字路径约限 100 字节，因此测试 profile 必须保持短小。
+        string temporaryRoot = OperatingSystem.IsWindows() ? Path.GetTempPath() : "/tmp";
+        string root = Path.Combine(temporaryRoot, $"sdc-{Guid.NewGuid():N}");
         var paths = new ScrapPathLayout(root);
         paths.Initialize();
         await File.WriteAllTextAsync(paths.ConfigurationFile, configuration);

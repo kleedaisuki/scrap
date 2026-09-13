@@ -139,6 +139,6 @@ jobs:
           foreach ($component in @("Avalonia", "SkiaSharp", "HarfBuzz", "Inter font", "SQLitePCLRaw", ".NET Runtime")) {
             if (-not $noticeText.Contains($component, [StringComparison]::Ordinal)) { throw "Missing notice for $component." }
           }
-          if (-not (Select-String build/package.ps1 -SimpleMatch 'THIRD-PARTY-NOTICES.txt' -Quiet)) {
+          if (-not (Select-String -LiteralPath build/package.ps1 -Pattern 'THIRD-PARTY-NOTICES.txt' -SimpleMatch -Quiet)) {
             throw "The package script does not include the notice inventory."
           }
