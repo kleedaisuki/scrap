@@ -1,0 +1,7 @@
+version: 2
+updates:
+  # 每周更新已固定 SHA 的 GitHub Actions。Update SHA-pinned GitHub Actions weekly.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

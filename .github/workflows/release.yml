@@ -1,0 +1,172 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+      - name: Restore
+        run: dotnet restore Scrap.slnx
+      - name: Build
+        run: dotnet build Scrap.slnx --configuration Release --no-restore
+      - name: Test
+        run: dotnet test Scrap.slnx --configuration Release --no-build --verbosity normal
+
+  package:
+    name: Package / ${{ matrix.rid }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            extension: zip
+          - os: ubuntu-latest
+            rid: linux-x64
+            extension: tar.gz
+          - os: macos-15-intel
+            rid: osx-x64
+            extension: tar.gz
+          - os: macos-latest
+            rid: osx-arm64
+            extension: tar.gz
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+      - name: Record SDK information
+        run: dotnet --info
+      - name: Derive version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if (-not $tag.StartsWith("v", [StringComparison]::Ordinal)) { throw "Release tag must start with v." }
+          "value=$($tag.Substring(1))" >> $env:GITHUB_OUTPUT
+      - name: Build self-contained package
+        shell: pwsh
+        run: ./build/package.ps1 -RuntimeIdentifier "${{ matrix.rid }}" -Version "${{ steps.version.outputs.value }}" -OutputDirectory artifacts
+      - name: Smoke-test CLI
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory smoke | Out-Null
+          if ("${{ matrix.extension }}" -eq "zip") {
+            Expand-Archive "artifacts/scrap-v${{ steps.version.outputs.value }}-${{ matrix.rid }}.zip" smoke
+          } else {
+            tar -C smoke -xzf "artifacts/scrap-v${{ steps.version.outputs.value }}-${{ matrix.rid }}.tar.gz"
+          }
+          $suffix = if ($IsWindows) { ".exe" } else { "" }
+          $root = "smoke/scrap-v${{ steps.version.outputs.value }}-${{ matrix.rid }}/payload"
+          foreach ($program in @("scrap", "scrapd", "scrap-gui")) {
+            if (-not (Test-Path "$root/$program$suffix" -PathType Leaf)) { throw "Missing $program$suffix" }
+          }
+          & "$root/scrap$suffix" --help
+          if ($LASTEXITCODE -ne 0) { throw "CLI smoke test failed." }
+      - name: Smoke-test Windows installer contract
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $package = "smoke/scrap-v${{ steps.version.outputs.value }}-${{ matrix.rid }}"
+          $scrapRoot = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".scrap"
+          Remove-Item $scrapRoot -Recurse -Force -ErrorAction SilentlyContinue
+          & "$package/install.ps1" -NoPath
+          if (Test-Path "$scrapRoot/data") { throw "Installer must not initialize data." }
+          New-Item -ItemType Directory "$scrapRoot/data" | Out-Null
+          Set-Content "$scrapRoot/data/sentinel" "keep"
+          & "$package/install.ps1" -NoPath
+          & "$package/uninstall.ps1" -NoPath
+          & "$package/uninstall.ps1" -NoPath
+          if (-not (Test-Path "$scrapRoot/data/sentinel")) { throw "Normal uninstall removed data." }
+          & "$package/install.ps1" -NoPath
+          & "$package/uninstall.ps1" -Purge -Yes -NoPath
+          if (Test-Path $scrapRoot) { throw "Purge left the scrap root behind." }
+      - name: Smoke-test Unix installer contract
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          export HOME="$RUNNER_TEMP/scrap-home"
+          package="$PWD/smoke/scrap-v${{ steps.version.outputs.value }}-${{ matrix.rid }}"
+          mkdir -p "$HOME"
+          "$package/install.sh"
+          test ! -e "$HOME/.scrap/data"
+          mkdir -p "$HOME/.scrap/data"
+          printf keep > "$HOME/.scrap/data/sentinel"
+          "$package/install.sh"
+          test "$(grep -c '^# >>> scrap PATH / scrap PATH begin >>>$' "$HOME/.profile")" -eq 1
+          test -x "$HOME/.scrap/bin/scrap"
+          "$package/uninstall.sh"
+          "$package/uninstall.sh"
+          test -f "$HOME/.scrap/data/sentinel"
+          ! grep -q '^# >>> scrap PATH / scrap PATH begin >>>$' "$HOME/.profile"
+          "$package/install.sh" --no-path
+          "$package/uninstall.sh" --purge --yes --no-path
+          test ! -e "$HOME/.scrap"
+      - name: Upload release archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-${{ matrix.rid }}
+          path: |
+            artifacts/scrap-v${{ steps.version.outputs.value }}-${{ matrix.rid }}.${{ matrix.extension }}
+            artifacts/scrap-v${{ steps.version.outputs.value }}-${{ matrix.rid }}.${{ matrix.extension }}.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish GitHub Release
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Create aggregate checksums
+        shell: bash
+        run: |
+          cd dist
+          sha256sum scrap-*.zip scrap-*.tar.gz > SHA256SUMS
+          sha256sum --check SHA256SUMS
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" dist/* --verify-tag --generate-notes --title "scrap ${GITHUB_REF_NAME}"
+          fi

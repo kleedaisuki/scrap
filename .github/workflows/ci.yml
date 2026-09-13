@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# 同一引用只保留最新运行，避免浪费 runner。Keep only the newest run for the same ref.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      # 固定完整提交以降低供应链漂移；Dependabot 负责更新。Pin full commits; Dependabot updates them.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+
+      - name: Record SDK information
+        run: dotnet --info
+
+      - name: Restore
+        run: dotnet restore Scrap.slnx
+
+      - name: Build
+        run: dotnet build Scrap.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test Scrap.slnx --configuration Release --no-build --verbosity normal
+
+      - name: Parse PowerShell release scripts
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem build -Filter *.ps1 | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors)
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_ }
+              $failed = $true
+            }
+          }
+          if ($failed) { throw "PowerShell syntax validation failed." }
+
+      - name: Parse POSIX release scripts
+        if: runner.os != 'Windows'
+        shell: bash
+        run: sh -n build/install.sh build/uninstall.sh
