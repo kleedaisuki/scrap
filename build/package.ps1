@@ -15,7 +15,7 @@ param(
     [string] $RuntimeIdentifier,
 
     [Parameter(Mandatory)]
-    [ValidatePattern("^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")]
+    [ValidatePattern("^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$")]
     [string] $Version,
 
     [string] $OutputDirectory = (Join-Path $PSScriptRoot "../artifacts")
@@ -80,6 +80,7 @@ try {
     Publish-EntryPoint -Project "src/Scrap.Gui/Scrap.Gui.csproj" -BuildName "Scrap.Gui" -PublicName "scrap-gui"
 
     Copy-Item -LiteralPath (Join-Path $repoRoot "LICENSE") -Destination $packageRoot
+    Copy-Item -LiteralPath (Join-Path $repoRoot "THIRD-PARTY-NOTICES.txt") -Destination $packageRoot
     if ($isWindowsTarget) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot "install.ps1") -Destination $packageRoot
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot "uninstall.ps1") -Destination $packageRoot

@@ -1,4 +1,4 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 <#+
 .SYNOPSIS
 为当前 Windows 用户安装 scrap。Installs scrap for the current Windows user.
@@ -23,7 +23,7 @@ function Stop-InstalledDaemon {
     $cli = Join-Path $binDirectory "scrap.exe"
     if (Test-Path -LiteralPath $cli -PathType Leaf) {
         try {
-            $process = Start-Process -FilePath $cli -ArgumentList @("daemon", "shutdown") -PassThru -WindowStyle Hidden
+            $process = Start-Process -FilePath $cli -ArgumentList @("daemon", "shutdown", "--if-running") -PassThru -WindowStyle Hidden
             if (-not $process.WaitForExit(5000)) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
             $process.Dispose()
         }
@@ -34,14 +34,15 @@ function Stop-InstalledDaemon {
 
 # 精确添加一次安装路径并记录归属。Adds the exact installation directory once and records ownership of the PATH entry.
 function Add-UserPath {
-    $current = [Environment]::GetEnvironmentVariable("Path", "User") ?? ""
+    $current = [Environment]::GetEnvironmentVariable("Path", "User")
+    if ($null -eq $current) { $current = "" }
     $entries = @($current.Split(';', [StringSplitOptions]::RemoveEmptyEntries))
     if ($entries -contains $binDirectory) { return }
 
     $updated = if ($current.Length -eq 0) { $binDirectory } else { "$current;$binDirectory" }
     [Environment]::SetEnvironmentVariable("Path", $updated, "User")
     New-Item -ItemType Directory -Path $stateDirectory -Force | Out-Null
-    Set-Content -LiteralPath $pathMarker -Value $binDirectory -Encoding utf8NoBOM
+    [IO.File]::WriteAllText($pathMarker, "$binDirectory`n", [Text.UTF8Encoding]::new($false))
 }
 
 foreach ($program in $programs) {

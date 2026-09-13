@@ -46,7 +46,7 @@ jobs:
       - name: Test
         run: dotnet test Scrap.slnx --configuration Release --no-build --verbosity normal
 
-      - name: Parse PowerShell release scripts
+      - name: Parse release scripts with PowerShell 7
         shell: pwsh
         run: |
           $failed = $false
@@ -59,9 +59,86 @@ jobs:
               $failed = $true
             }
           }
-          if ($failed) { throw "PowerShell syntax validation failed." }
+          if ($failed) { throw "PowerShell 7 syntax validation failed." }
+
+      - name: Parse release scripts with Windows PowerShell 5.1
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $failed = $false
+          Get-ChildItem build -Filter *.ps1 | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors)
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_ }
+              $failed = $true
+            }
+          }
+          if ($failed) { throw "Windows PowerShell 5.1 syntax validation failed." }
+
+      - name: Smoke-test installers with Windows PowerShell 5.1
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $package = Join-Path $env:RUNNER_TEMP "installer-smoke"
+          $payload = Join-Path $package "payload"
+          $scrapRoot = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".scrap"
+          if (Test-Path -LiteralPath $scrapRoot) { throw "Hosted runner unexpectedly contains an existing .scrap directory." }
+          New-Item -ItemType Directory -Path $payload | Out-Null
+          Copy-Item build/install.ps1, build/uninstall.ps1 -Destination $package
+          foreach ($program in @("scrap.exe", "scrapd.exe", "scrap-gui.exe")) {
+            [IO.File]::WriteAllBytes((Join-Path $payload $program), [byte[]]@(0))
+          }
+          & "$package/install.ps1" -NoPath
+          if (Test-Path -LiteralPath "$scrapRoot/data") { throw "Installer initialized data." }
+          & "$package/uninstall.ps1" -NoPath
+          if (Test-Path -LiteralPath "$scrapRoot/data") { throw "Fresh uninstall started the daemon or initialized data." }
+          & "$package/install.ps1" -NoPath
+          if (Test-Path -LiteralPath "$scrapRoot/data") { throw "Reinstall initialized data." }
+          New-Item -ItemType Directory -Path "$scrapRoot/data" | Out-Null
+          Set-Content -LiteralPath "$scrapRoot/data/sentinel" -Value "keep"
+          & "$package/install.ps1" -NoPath
+          $lockedProgram = "$scrapRoot/bin/scrap.exe"
+          $lock = [IO.File]::Open($lockedProgram, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+          & powershell.exe -NoProfile -NonInteractive -File "$package/uninstall.ps1" -NoPath
+          $lockedExitCode = $LASTEXITCODE
+          if ($lockedExitCode -eq 0 -or -not (Test-Path -LiteralPath $lockedProgram)) {
+            $lock.Dispose()
+            throw "Locked-file uninstall must fail and preserve the locked program."
+          }
+          $lock.Dispose()
+          & "$package/uninstall.ps1" -NoPath
+          & "$package/uninstall.ps1" -NoPath
+          if (-not (Test-Path -LiteralPath "$scrapRoot/data/sentinel")) { throw "Normal uninstall removed data." }
+          & "$package/install.ps1" -NoPath
+          $lockedProgram = "$scrapRoot/bin/scrapd.exe"
+          $lock = [IO.File]::Open($lockedProgram, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+          & powershell.exe -NoProfile -NonInteractive -File "$package/uninstall.ps1" -Purge -Yes -NoPath
+          $lockedExitCode = $LASTEXITCODE
+          if ($lockedExitCode -eq 0 -or -not (Test-Path -LiteralPath "$scrapRoot/data/sentinel")) {
+            $lock.Dispose()
+            throw "Locked-file purge must fail without deleting data."
+          }
+          $lock.Dispose()
+          & "$package/install.ps1" -NoPath
+          & "$package/uninstall.ps1" -Purge -Yes -NoPath
+          if (Test-Path -LiteralPath $scrapRoot) { throw "Purge left the scrap root behind." }
 
       - name: Parse POSIX release scripts
         if: runner.os != 'Windows'
         shell: bash
         run: sh -n build/install.sh build/uninstall.sh
+
+      - name: Validate release legal inventory
+        shell: pwsh
+        run: |
+          $notice = Get-Item THIRD-PARTY-NOTICES.txt
+          if ($notice.Length -lt 100000) { throw "Third-party notice inventory is unexpectedly incomplete." }
+          $noticeText = Get-Content $notice.FullName -Raw
+          foreach ($component in @("Avalonia", "SkiaSharp", "HarfBuzz", "Inter font", "SQLitePCLRaw", ".NET Runtime")) {
+            if (-not $noticeText.Contains($component, [StringComparison]::Ordinal)) { throw "Missing notice for $component." }
+          }
+          if (-not (Select-String build/package.ps1 -SimpleMatch 'THIRD-PARTY-NOTICES.txt' -Quiet)) {
+            throw "The package script does not include the notice inventory."
+          }

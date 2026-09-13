@@ -13,6 +13,36 @@ permissions:
   contents: read
 
 jobs:
+  metadata:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+    steps:
+      - name: Derive version and release channel
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if (-not $tag.StartsWith("v", [StringComparison]::Ordinal)) { throw "Release tag must start with v." }
+          $version = $tag.Substring(1)
+          $semVerPattern = '^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?<prerelease>(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$'
+          if ($version -notmatch $semVerPattern) {
+            throw "Release tag must contain a SemVer version."
+          }
+          $isPrerelease = $Matches.ContainsKey("prerelease")
+          # 覆盖合法 pre+build 及典型非法版本，避免发布通道或 parser 回归。Cover valid pre+build and common invalid forms.
+          foreach ($valid in @("1.2.3", "1.2.3-beta+build.7")) {
+            if ($valid -notmatch $semVerPattern) { throw "SemVer validation invariant failed for $valid." }
+          }
+          foreach ($invalid in @("01.2.3", "1.2.3-..", "1.2.3-01")) {
+            if ($invalid -match $semVerPattern) { throw "SemVer validation accepted invalid value $invalid." }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "is_prerelease=$($isPrerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
   test:
     name: Test / ${{ matrix.os }}
     strategy:
@@ -37,7 +67,7 @@ jobs:
 
   package:
     name: Package / ${{ matrix.rid }}
-    needs: test
+    needs: [metadata, test]
     strategy:
       fail-fast: false
       matrix:
@@ -65,51 +95,133 @@ jobs:
           global-json-file: global.json
       - name: Record SDK information
         run: dotnet --info
-      - name: Derive version from tag
-        id: version
-        shell: pwsh
-        run: |
-          $tag = "${{ github.ref_name }}"
-          if (-not $tag.StartsWith("v", [StringComparison]::Ordinal)) { throw "Release tag must start with v." }
-          "value=$($tag.Substring(1))" >> $env:GITHUB_OUTPUT
       - name: Build self-contained package
         shell: pwsh
-        run: ./build/package.ps1 -RuntimeIdentifier "${{ matrix.rid }}" -Version "${{ steps.version.outputs.value }}" -OutputDirectory artifacts
+        run: ./build/package.ps1 -RuntimeIdentifier "${{ matrix.rid }}" -Version "${{ needs.metadata.outputs.version }}" -OutputDirectory artifacts
       - name: Smoke-test CLI
         shell: pwsh
         run: |
           New-Item -ItemType Directory smoke | Out-Null
           if ("${{ matrix.extension }}" -eq "zip") {
-            Expand-Archive "artifacts/scrap-v${{ steps.version.outputs.value }}-${{ matrix.rid }}.zip" smoke
+            Expand-Archive "artifacts/scrap-v${{ needs.metadata.outputs.version }}-${{ matrix.rid }}.zip" smoke
           } else {
-            tar -C smoke -xzf "artifacts/scrap-v${{ steps.version.outputs.value }}-${{ matrix.rid }}.tar.gz"
+            tar -C smoke -xzf "artifacts/scrap-v${{ needs.metadata.outputs.version }}-${{ matrix.rid }}.tar.gz"
           }
           $suffix = if ($IsWindows) { ".exe" } else { "" }
-          $root = "smoke/scrap-v${{ steps.version.outputs.value }}-${{ matrix.rid }}/payload"
+          $packageRoot = "smoke/scrap-v${{ needs.metadata.outputs.version }}-${{ matrix.rid }}"
+          $root = "$packageRoot/payload"
           foreach ($program in @("scrap", "scrapd", "scrap-gui")) {
             if (-not (Test-Path "$root/$program$suffix" -PathType Leaf)) { throw "Missing $program$suffix" }
           }
+          foreach ($notice in @("LICENSE", "THIRD-PARTY-NOTICES.txt")) {
+            if (-not (Test-Path "$packageRoot/$notice" -PathType Leaf)) { throw "Missing $notice" }
+          }
           & "$root/scrap$suffix" --help
           if ($LASTEXITCODE -ne 0) { throw "CLI smoke test failed." }
-      - name: Smoke-test Windows installer contract
+      - name: Smoke-test Windows cold-start pipe EOF
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $package = "smoke/scrap-v${{ steps.version.outputs.value }}-${{ matrix.rid }}"
+          @'
+          import os
+          import pathlib
+          import shutil
+          import subprocess
+          import sys
+          import time
+
+          payload = pathlib.Path.cwd() / "smoke" / "scrap-v${{ needs.metadata.outputs.version }}-${{ matrix.rid }}" / "payload"
+          cli = payload / "scrap.exe"
+          # GitHub-hosted Windows runners provide an ephemeral user profile; .NET GetFolderPath ignores HOME overrides.
+          scrap_root = pathlib.Path.home() / ".scrap"
+          if scrap_root.exists():
+              raise SystemExit("Windows hosted-runner profile was not clean before cold-start smoke")
+          environment = os.environ.copy()
+          try:
+              ping = subprocess.run(
+                  [str(cli), "daemon", "ping"],
+                  capture_output=True,
+                  timeout=5,
+                  env=environment,
+                  check=False,
+              )
+              if ping.returncode != 0:
+                  sys.stderr.buffer.write(ping.stderr)
+                  raise SystemExit("cold-start ping failed")
+          finally:
+              subprocess.run(
+                  [str(cli), "daemon", "shutdown", "--if-running"],
+                  capture_output=True,
+                  timeout=5,
+                  env=environment,
+                  check=False,
+              )
+              for _ in range(10):
+                  if not scrap_root.exists():
+                      break
+                  try:
+                      shutil.rmtree(scrap_root, ignore_errors=False)
+                      break
+                  except PermissionError:
+                      time.sleep(0.2)
+              if scrap_root.exists():
+                  raise SystemExit("cold-start smoke could not clean its ephemeral profile")
+          print("WINDOWS_COLD_START_EOF_OK")
+          '@ | python -
+      - name: Smoke-test daemon lifecycle
+        shell: pwsh
+        run: |
+          $suffix = if ($IsWindows) { ".exe" } else { "" }
+          $payload = "$PWD/smoke/scrap-v${{ needs.metadata.outputs.version }}-${{ matrix.rid }}/payload"
+          if (-not $IsWindows) {
+            $isolatedHome = Join-Path $env:RUNNER_TEMP "daemon-smoke-home"
+            New-Item -ItemType Directory -Path $isolatedHome -Force | Out-Null
+            $env:HOME = $isolatedHome
+          }
+          & "$payload/scrap$suffix" daemon version
+          if ($LASTEXITCODE -ne 0) { throw "daemon version smoke test failed." }
+          & "$payload/scrap$suffix" daemon ping
+          if ($LASTEXITCODE -ne 0) { throw "daemon ping smoke test failed." }
+          if ($IsWindows) {
+            & "$payload/scrap$suffix" scope create release-smoke
+            if ($LASTEXITCODE -ne 0) { throw "scope create smoke test failed." }
+            "release-value" | & "$payload/scrap$suffix" set release-smoke token
+            if ($LASTEXITCODE -ne 0) { throw "record set smoke test failed." }
+            $value = & "$payload/scrap$suffix" get release-smoke token
+            if ($LASTEXITCODE -ne 0 -or $value -ne "release-value") { throw "record get smoke test failed." }
+            & "$payload/scrap$suffix" delete release-smoke token
+            if ($LASTEXITCODE -ne 0) { throw "record delete smoke test failed." }
+          }
+          & "$payload/scrap$suffix" daemon shutdown
+          if ($LASTEXITCODE -ne 0) { throw "daemon shutdown smoke test failed." }
+      - name: Smoke-test Windows installer contract
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $package = "smoke/scrap-v${{ needs.metadata.outputs.version }}-${{ matrix.rid }}"
           $scrapRoot = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".scrap"
           $binDirectory = Join-Path $scrapRoot "bin"
-          $originalUserPath = [Environment]::GetEnvironmentVariable("Path", "User") ?? ""
+          $originalUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+          if ($null -eq $originalUserPath) { $originalUserPath = "" }
           Remove-Item $scrapRoot -Recurse -Force -ErrorAction SilentlyContinue
           & "$package/install.ps1"
           if (Test-Path "$scrapRoot/data") { throw "Installer must not initialize data." }
+          & "$package/uninstall.ps1"
+          if (Test-Path "$scrapRoot/data") { throw "Fresh uninstall started the daemon or initialized data." }
+          & "$package/install.ps1"
+          if (Test-Path "$scrapRoot/data") { throw "Reinstall initialized data." }
           New-Item -ItemType Directory "$scrapRoot/data" | Out-Null
           Set-Content "$scrapRoot/data/sentinel" "keep"
           & "$package/install.ps1"
-          $pathCount = @(([Environment]::GetEnvironmentVariable("Path", "User") ?? "").Split(';') | Where-Object { $_ -eq $binDirectory }).Count
+          $installedUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+          if ($null -eq $installedUserPath) { $installedUserPath = "" }
+          $pathCount = @($installedUserPath.Split(';') | Where-Object { $_ -eq $binDirectory }).Count
           if ($pathCount -ne 1) { throw "Installer did not manage PATH idempotently." }
           & "$package/uninstall.ps1"
           & "$package/uninstall.ps1"
-          if (([Environment]::GetEnvironmentVariable("Path", "User") ?? "") -ne $originalUserPath) { throw "Uninstall did not restore PATH." }
+          $restoredUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+          if ($null -eq $restoredUserPath) { $restoredUserPath = "" }
+          if ($restoredUserPath -ne $originalUserPath) { throw "Uninstall did not restore PATH." }
           if (-not (Test-Path "$scrapRoot/data/sentinel")) { throw "Normal uninstall removed data." }
           & "$package/install.ps1" -NoPath
           & "$package/uninstall.ps1" -Purge -Yes -NoPath
@@ -119,17 +231,52 @@ jobs:
         shell: bash
         run: |
           export HOME="$RUNNER_TEMP/scrap-home"
-          package="$PWD/smoke/scrap-v${{ steps.version.outputs.value }}-${{ matrix.rid }}"
+          package="$PWD/smoke/scrap-v${{ needs.metadata.outputs.version }}-${{ matrix.rid }}"
           mkdir -p "$HOME"
-          "$package/install.sh"
+          printf 'untouched\n' > "$HOME/.bashrc"
+          cp "$HOME/.bashrc" "$HOME/bashrc.before"
+          bashrc_inode=$(ls -di "$HOME/.bashrc" | awk '{print $1}')
+          printf 'zsh target\n' > "$HOME/zsh-profile-target"
+          ln -s "$HOME/zsh-profile-target" "$HOME/.zshrc"
+          target_inode=$(ls -di "$HOME/zsh-profile-target" | awk '{print $1}')
+          target_mode=$(ls -ld "$HOME/zsh-profile-target" | awk '{print $1}')
+          SHELL=/bin/zsh "$package/install.sh"
+          test ! -e "$HOME/.scrap/data"
+          SHELL=/bin/zsh "$package/uninstall.sh"
+          test ! -e "$HOME/.scrap/data"
+          SHELL=/bin/zsh "$package/install.sh"
           test ! -e "$HOME/.scrap/data"
           mkdir -p "$HOME/.scrap/data"
           printf keep > "$HOME/.scrap/data/sentinel"
-          "$package/install.sh"
+          SHELL=/bin/zsh "$package/install.sh"
           test "$(grep -c '^# >>> scrap PATH / scrap PATH begin >>>$' "$HOME/.profile")" -eq 1
           test -x "$HOME/.scrap/bin/scrap"
-          "$package/uninstall.sh"
-          "$package/uninstall.sh"
+          SHELL=/bin/zsh "$package/uninstall.sh"
+          test -L "$HOME/.zshrc"
+          test "$(ls -di "$HOME/zsh-profile-target" | awk '{print $1}')" = "$target_inode"
+          test "$(ls -ld "$HOME/zsh-profile-target" | awk '{print $1}')" = "$target_mode"
+          cmp "$HOME/.bashrc" "$HOME/bashrc.before"
+          test "$(ls -di "$HOME/.bashrc" | awk '{print $1}')" = "$bashrc_inode"
+          printf '%s\n%s\n' '# >>> scrap PATH / scrap PATH begin >>>' 'partial user content' > "$HOME/.zprofile"
+          cp "$HOME/.zprofile" "$HOME/zprofile.partial"
+          SHELL=/bin/zsh "$package/uninstall.sh"
+          cmp "$HOME/.zprofile" "$HOME/zprofile.partial"
+          cat > "$HOME/path-body" <<'EOF'
+          case ":$PATH:" in
+            *":$HOME/.scrap/bin:"*) ;;
+            *) export PATH="$HOME/.scrap/bin:$PATH" ;;
+          esac
+          EOF
+          for prefix_lines in 0 1 2 3 4; do
+            printf '%s\n' '# >>> scrap PATH / scrap PATH begin >>>' > "$HOME/.zprofile"
+            head -n "$prefix_lines" "$HOME/path-body" >> "$HOME/.zprofile"
+            printf 'user content %s must survive\n' "$prefix_lines" >> "$HOME/.zprofile"
+            SHELL=/bin/zsh "$package/install.sh"
+            SHELL=/bin/zsh "$package/uninstall.sh"
+            grep -q "user content $prefix_lines must survive" "$HOME/.zprofile"
+            ! grep -Fq '# >>> scrap PATH / scrap PATH begin >>>' "$HOME/.zprofile"
+            ! grep -Fq 'export PATH="$HOME/.scrap/bin:$PATH"' "$HOME/.zprofile"
+          done
           test -f "$HOME/.scrap/data/sentinel"
           ! grep -q '^# >>> scrap PATH / scrap PATH begin >>>$' "$HOME/.profile"
           "$package/install.sh" --no-path
@@ -140,14 +287,14 @@ jobs:
         with:
           name: release-${{ matrix.rid }}
           path: |
-            artifacts/scrap-v${{ steps.version.outputs.value }}-${{ matrix.rid }}.${{ matrix.extension }}
-            artifacts/scrap-v${{ steps.version.outputs.value }}-${{ matrix.rid }}.${{ matrix.extension }}.sha256
+            artifacts/scrap-v${{ needs.metadata.outputs.version }}-${{ matrix.rid }}.${{ matrix.extension }}
+            artifacts/scrap-v${{ needs.metadata.outputs.version }}-${{ matrix.rid }}.${{ matrix.extension }}.sha256
           if-no-files-found: error
           retention-days: 7
 
   release:
     name: Publish GitHub Release
-    needs: package
+    needs: [metadata, package]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -171,8 +318,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
+          if [[ "${{ needs.metadata.outputs.is_prerelease }}" == "true" ]]; then
+            release_flags=(--prerelease --latest=false)
+          else
+            release_flags=(--prerelease=false)
+          fi
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
+            gh release edit "${GITHUB_REF_NAME}" "${release_flags[@]}"
           else
-            gh release create "${GITHUB_REF_NAME}" dist/* --verify-tag --generate-notes --title "scrap ${GITHUB_REF_NAME}"
+            gh release create "${GITHUB_REF_NAME}" dist/* --verify-tag --generate-notes --title "scrap ${GITHUB_REF_NAME}" "${release_flags[@]}"
           fi

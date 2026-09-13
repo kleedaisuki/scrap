@@ -17,10 +17,34 @@ programs="scrap scrapd scrap-gui"
 begin_marker='# >>> scrap PATH / scrap PATH begin >>>'
 end_marker='# <<< scrap PATH / scrap PATH end <<<'
 
+# 非阻塞提示 Linux key provider 的系统依赖。Warn about Linux key-provider prerequisites without blocking installation.
+check_linux_key_provider() {
+    [ "$(uname -s 2>/dev/null || true)" = "Linux" ] || return 0
+    libraries=$(ldconfig -p 2>/dev/null || true)
+    secret_found=0
+    gio_found=0
+    if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists libsecret-1; then secret_found=1; fi
+    if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists gio-2.0; then gio_found=1; fi
+    if printf '%s\n' "$libraries" | grep -q 'libsecret-1\.so'; then secret_found=1; fi
+    if printf '%s\n' "$libraries" | grep -q 'libgio-2\.0\.so'; then gio_found=1; fi
+    if [ "$secret_found" -eq 0 ]; then
+        echo '警告：未检测到 libsecret-1；请安装 libsecret-1-0（Debian/Ubuntu）或 libsecret（Fedora/Arch）。' >&2
+        echo 'Warning: libsecret-1 was not detected; install libsecret-1-0 (Debian/Ubuntu) or libsecret (Fedora/Arch).' >&2
+    fi
+    if [ "$gio_found" -eq 0 ]; then
+        echo '警告：未检测到 GLib/GIO；scrap 的 Linux key provider 需要 GLib。' >&2
+        echo 'Warning: GLib/GIO was not detected; the Linux key provider requires GLib.' >&2
+    fi
+    if [ -z "${DBUS_SESSION_BUS_ADDRESS-}" ]; then
+        echo '警告：当前没有用户会话 D-Bus；请在带 Secret Service（如 GNOME Keyring/KWallet）的登录会话中运行 scrap。' >&2
+        echo 'Warning: no user-session D-Bus is active; run scrap in a login session with Secret Service (for example GNOME Keyring/KWallet).' >&2
+    fi
+}
+
 # 在有限时间内尽力停止旧 daemon。Stop the old daemon on a best-effort, bounded-time basis.
 stop_installed_daemon() {
     [ -x "$bin_dir/scrap" ] || return 0
-    "$bin_dir/scrap" daemon shutdown >/dev/null 2>&1 & daemon_command=$!
+    "$bin_dir/scrap" daemon shutdown --if-running >/dev/null 2>&1 & daemon_command=$!
     (sleep 5; kill -KILL "$daemon_command" 2>/dev/null || true) & watchdog=$!
     wait "$daemon_command" 2>/dev/null || true
     kill "$watchdog" 2>/dev/null || true
@@ -32,7 +56,45 @@ stop_installed_daemon() {
 add_path_block() {
     profile=$1
     [ -f "$profile" ] || : > "$profile"
-    if grep -F "$begin_marker" "$profile" >/dev/null 2>&1; then return; fi
+    begin_count=$(grep -Fxc "$begin_marker" "$profile" || true)
+    end_count=$(grep -Fxc "$end_marker" "$profile" || true)
+    if [ "$begin_count" -eq 1 ] && [ "$end_count" -eq 1 ] && awk -v begin="$begin_marker" -v end="$end_marker" '
+        $0 == begin { if (saw_begin || saw_end) invalid = 1; saw_begin = 1 }
+        $0 == end { if (!saw_begin || saw_end) invalid = 1; saw_end = 1 }
+        END { exit !(saw_begin && saw_end && !invalid) }
+    ' "$profile"; then
+        return 0
+    fi
+    if [ "$begin_count" -ne 0 ] || [ "$end_count" -ne 0 ]; then
+        echo "正在修复 $profile 中残缺的 scrap PATH 标记。Repairing incomplete scrap PATH markers in $profile." >&2
+        temp=$(mktemp "${TMPDIR:-/tmp}/scrap-profile-install.XXXXXX")
+        backup=$(mktemp "${TMPDIR:-/tmp}/scrap-profile-install-backup.XXXXXX")
+        if ! cat "$profile" > "$backup"; then
+            rm -f "$temp" "$backup"
+            return 1
+        fi
+        # 删除 begin 后与规范模板匹配的最长前缀；第一个非模板行及其后内容属于用户。
+        # Remove the longest canonical template prefix after begin; the first non-template line remains user-owned.
+        if ! awk -v begin="$begin_marker" -v end="$end_marker" '
+            BEGIN {
+                body[1] = "case \":$PATH:\" in"
+                body[2] = "  *\":$HOME/.scrap/bin:\"*) ;;"
+                body[3] = "  *) export PATH=\"$HOME/.scrap/bin:$PATH\" ;;"
+                body[4] = "esac"
+            }
+            $0 == begin { repairing = 1; matched = 0; next }
+            repairing && $0 == end { repairing = 0; matched = 0; next }
+            repairing && matched < 4 && $0 == body[matched + 1] { matched++; next }
+            repairing { repairing = 0; matched = 0; print; next }
+            $0 == end { next }
+            { print }
+        ' "$profile" > "$temp" || ! cat "$temp" > "$profile"; then
+            cat "$backup" > "$profile" 2>/dev/null || true
+            rm -f "$temp" "$backup"
+            return 1
+        fi
+        rm -f "$temp" "$backup"
+    fi
     {
         printf '\n%s\n' "$begin_marker"
         printf '%s\n' 'case ":$PATH:" in'
@@ -50,6 +112,7 @@ for program in $programs; do
     fi
 done
 
+check_linux_key_provider
 stop_installed_daemon
 mkdir -p "$bin_dir"
 chmod 700 "$scrap_root" "$bin_dir"
