@@ -60,9 +60,12 @@ function Publish-EntryPoint {
         throw "dotnet publish failed for $Project."
     }
 
-    $entryPoint = Join-Path $publishDirectory "$BuildName$suffix"
-    if (-not (Test-Path -LiteralPath $entryPoint -PathType Leaf)) {
-        throw "Expected single-file entry point was not produced: $entryPoint"
+    $entryPoint = @(
+        (Join-Path $publishDirectory "$BuildName$suffix"),
+        (Join-Path $publishDirectory "$PublicName$suffix")
+    ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+    if ($null -eq $entryPoint) {
+        throw "Expected single-file entry point was not produced for $Project."
     }
 
     Copy-Item -LiteralPath $entryPoint -Destination (Join-Path $payloadRoot "$PublicName$suffix")

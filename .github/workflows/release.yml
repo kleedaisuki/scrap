@@ -158,6 +158,7 @@ jobs:
         shell: bash
         run: |
           cd dist
+          sha256sum --check scrap-*.sha256
           sha256sum scrap-*.zip scrap-*.tar.gz > SHA256SUMS
           sha256sum --check SHA256SUMS
       - name: Create or update GitHub Release
