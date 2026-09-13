@@ -161,6 +161,21 @@ public sealed class SqliteStoreTests
     }
 
     [Fact]
+    public void ListAllRecordMetadataReturnsOneOrderedCiphertextFreeProjection()
+    {
+        using var database = TestDatabase.Create();
+        database.Store.CreateScope("unicode");
+        foreach (var key in OrdinalEdgeCaseOrder.Reverse())
+        {
+            database.Store.SetRecord("unicode", key, 0, _ => Protected(key));
+        }
+
+        var metadata = database.Store.ListAllRecordMetadata("unicode");
+        Assert.Equal(OrdinalEdgeCaseOrder, metadata.Select(record => record.Identity.Key));
+        Assert.All(metadata, record => Assert.True(record.Revision > 0));
+    }
+
+    [Fact]
     public void ExpectedUpdatedAtIsCheckedInsideMutation()
     {
         using var database = TestDatabase.Create();
@@ -252,6 +267,20 @@ public sealed class SqliteStoreTests
         Assert.Equal(StorageConflictKind.Concurrency, exception.Kind);
         Assert.NotNull(database.Store.GetScope("old"));
         Assert.Null(database.Store.GetScope("new"));
+    }
+
+    [Fact]
+    public void StagedScopeRenameToSameNameIsANoOp()
+    {
+        using var database = TestDatabase.Create();
+        var scope = database.Store.CreateScope("same");
+        var record = database.Store.SetRecord("same", "key", 0, _ => Protected("value"));
+
+        var result = database.Store.RenameScope("same", "same", Array.Empty<RecordReencryption>());
+
+        Assert.Equal(0, result.ReencryptedRecordCount);
+        Assert.Equal(scope, result.Scope);
+        AssertRecordEquivalent(record, database.Store.GetRecord("same", "key"));
     }
 
     [Fact]

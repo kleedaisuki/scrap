@@ -326,6 +326,34 @@ public sealed class SqliteStore
         return records;
     }
 
+    /// <summary>
+    /// 在一个连接的一条 SELECT snapshot 中读取 scope 的全部 metadata，且不读取密文/nonce；供 search 内存评分使用。<br/>
+    /// Reads all scope metadata without ciphertext/nonces in one SELECT snapshot on one connection; intended for in-memory search scoring.
+    /// </summary>
+    public IReadOnlyList<StoredRecordMetadata> ListAllRecordMetadata(string scopeName)
+    {
+        ValidateName(scopeName, nameof(scopeName));
+        using var connection = OpenConnection();
+        var scope = FindScope(connection, transaction: null, scopeName)
+            ?? throw new StorageNotFoundException(StorageEntityKind.Scope, scopeName);
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, key, presentation, revision, created_at, updated_at
+            FROM records
+            WHERE scope_id = $scopeId
+            ORDER BY key COLLATE SCRAP_ORDINAL;
+            """;
+        command.Parameters.AddWithValue("$scopeId", scope.Id);
+        using var reader = command.ExecuteReader();
+        var records = new List<StoredRecordMetadata>();
+        while (reader.Read())
+        {
+            records.Add(ReadRecordMetadata(reader, scope.Id, scopeName));
+        }
+
+        return records;
+    }
+
     /// <summary>删除精确 record；不存在时报告 not-found。 / Deletes an exact record, reporting not-found when absent.</summary>
     public void DeleteRecord(
         string scopeName,
@@ -501,7 +529,13 @@ public sealed class SqliteStore
         using var transaction = connection.BeginTransaction(deferred: false);
         var source = FindScope(connection, transaction, oldName)
             ?? throw new StorageNotFoundException(StorageEntityKind.Scope, oldName);
-        if (!string.Equals(oldName, newName, StringComparison.Ordinal) && FindScope(connection, transaction, newName) is not null)
+        if (string.Equals(oldName, newName, StringComparison.Ordinal))
+        {
+            transaction.Commit();
+            return new ScopeRenameResult(source, 0);
+        }
+
+        if (FindScope(connection, transaction, newName) is not null)
         {
             throw new StorageConflictException(StorageConflictKind.ScopeExists, $"Scope already exists: {newName}");
         }
@@ -524,9 +558,8 @@ public sealed class SqliteStore
         }
 
         var timestamp = NormalizeTimestamp(now);
-        if (!string.Equals(oldName, newName, StringComparison.Ordinal))
+        using (var rename = connection.CreateCommand())
         {
-            using var rename = connection.CreateCommand();
             rename.Transaction = transaction;
             rename.CommandText = "UPDATE scopes SET name = $name, updated_at = $updatedAt WHERE id = $id;";
             rename.Parameters.AddWithValue("$name", newName);
