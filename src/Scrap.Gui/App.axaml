@@ -1,10 +1,117 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="Scrap.Gui.App"
-             RequestedThemeVariant="Default">
-             <!-- "Default" ThemeVariant follows system theme variant. "Dark" or "Light" are other available options. -->
+             RequestedThemeVariant="Dark">
+  <Application.Resources>
+    <Color x:Key="MoeInk">#16131F</Color>
+    <Color x:Key="MoeSurface">#211C2C</Color>
+    <Color x:Key="MoeSurfaceRaised">#2B2438</Color>
+    <Color x:Key="MoePink">#FF79C6</Color>
+    <Color x:Key="MoePinkSoft">#553047</Color>
+    <Color x:Key="MoeCyan">#8BE9FD</Color>
+    <Color x:Key="MoePurple">#BD93F9</Color>
+    <Color x:Key="MoeGreen">#50FA7B</Color>
+    <Color x:Key="MoeRed">#FF6E8A</Color>
+    <Color x:Key="MoeText">#F8F8F2</Color>
+    <Color x:Key="MoeMuted">#AAA2B8</Color>
+    <SolidColorBrush x:Key="InkBrush" Color="{DynamicResource MoeInk}" />
+    <SolidColorBrush x:Key="SurfaceBrush" Color="{DynamicResource MoeSurface}" />
+    <SolidColorBrush x:Key="RaisedBrush" Color="{DynamicResource MoeSurfaceRaised}" />
+    <SolidColorBrush x:Key="PinkBrush" Color="{DynamicResource MoePink}" />
+    <SolidColorBrush x:Key="PinkSoftBrush" Color="{DynamicResource MoePinkSoft}" />
+    <SolidColorBrush x:Key="CyanBrush" Color="{DynamicResource MoeCyan}" />
+    <SolidColorBrush x:Key="PurpleBrush" Color="{DynamicResource MoePurple}" />
+    <SolidColorBrush x:Key="GreenBrush" Color="{DynamicResource MoeGreen}" />
+    <SolidColorBrush x:Key="RedBrush" Color="{DynamicResource MoeRed}" />
+    <SolidColorBrush x:Key="TextBrush" Color="{DynamicResource MoeText}" />
+    <SolidColorBrush x:Key="MutedBrush" Color="{DynamicResource MoeMuted}" />
+  </Application.Resources>
 
-    <Application.Styles>
-        <FluentTheme />
-    </Application.Styles>
+  <Application.Styles>
+    <FluentTheme DensityStyle="Compact" />
+    <Style Selector="Window">
+      <Setter Property="Background" Value="{DynamicResource InkBrush}" />
+      <Setter Property="FontFamily" Value="Inter" />
+    </Style>
+    <Style Selector="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+    </Style>
+    <Style Selector="TextBlock.muted">
+      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+    </Style>
+    <Style Selector="TextBlock.accent">
+      <Setter Property="Foreground" Value="{DynamicResource PinkBrush}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Border.panel">
+      <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+      <Setter Property="BorderBrush" Value="#493D5E" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Padding" Value="18" />
+    </Style>
+    <Style Selector="TextBox">
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+      <Setter Property="BorderBrush" Value="#5B4B72" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="12,9" />
+      <Setter Property="CaretBrush" Value="{DynamicResource PinkBrush}" />
+      <Setter Property="SelectionBrush" Value="{DynamicResource PinkSoftBrush}" />
+    </Style>
+    <Style Selector="TextBox:focus">
+      <Setter Property="BorderBrush" Value="{DynamicResource PinkBrush}" />
+      <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <Style Selector="ComboBox">
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+      <Setter Property="BorderBrush" Value="#5B4B72" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="10,7" />
+    </Style>
+    <Style Selector="Button">
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+      <Setter Property="BorderBrush" Value="#5B4B72" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="13,8" />
+    </Style>
+    <Style Selector="Button:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#3A304B" />
+    </Style>
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="{DynamicResource PinkBrush}" />
+      <Setter Property="Foreground" Value="#241728" />
+      <Setter Property="BorderBrush" Value="{DynamicResource PinkBrush}" />
+      <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+    <Style Selector="Button.danger">
+      <Setter Property="Foreground" Value="{DynamicResource RedBrush}" />
+      <Setter Property="BorderBrush" Value="#714052" />
+    </Style>
+    <Style Selector="RadioButton.mode">
+      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Padding" Value="10,6" />
+    </Style>
+    <Style Selector="RadioButton.mode:checked">
+      <Setter Property="Foreground" Value="{DynamicResource CyanBrush}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="ListBox">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style Selector="ListBoxItem">
+      <Setter Property="Padding" Value="12,10" />
+      <Setter Property="Margin" Value="0,2" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource PinkSoftBrush}" />
+    </Style>
+  </Application.Styles>
 </Application>
