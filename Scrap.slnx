@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Scrap.Cli/Scrap.Cli.csproj" />
+    <Project Path="src/Scrap.Client/Scrap.Client.csproj" />
     <Project Path="src/Scrap.Crypto/Scrap.Crypto.csproj" />
     <Project Path="src/Scrap.Daemon/Scrap.Daemon.csproj" />
     <Project Path="src/Scrap.Domain/Scrap.Domain.csproj" />
