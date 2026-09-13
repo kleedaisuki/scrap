@@ -8,10 +8,26 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="coverlet.collector" Version="6.0.4">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Scrap.Client\Scrap.Client.csproj" />
+    <ProjectReference Include="..\..\src\Scrap.Daemon\Scrap.Daemon.csproj" />
+    <ProjectReference Include="..\..\src\Scrap.Platform\Scrap.Platform.csproj" />
+    <ProjectReference Include="..\..\src\Scrap.Protocol\Scrap.Protocol.csproj" />
+    <ProjectReference Include="..\..\src\Scrap.Storage.Sqlite\Scrap.Storage.Sqlite.csproj" />
   </ItemGroup>
 
   <ItemGroup>

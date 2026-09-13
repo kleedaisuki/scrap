@@ -27,12 +27,38 @@ internal static class DaemonHost
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(paths);
+        return Build(args, paths, MasterKeyProviderFactory.Create(paths));
+    }
+
+    /// <summary>
+    /// 使用显式主密钥提供器组装 host，供隔离的进程内集成测试使用。
+    /// / Composes the host with an explicit master-key provider for isolated in-process integration tests.
+    /// </summary>
+    /// <remarks>
+    /// 此重载保持为 internal，避免把测试注入面暴露为生产 API；其余装配与生产入口完全相同。
+    /// / This overload remains internal so the test injection seam is not a production API; every other registration is
+    /// identical to the production entry point.
+    /// </remarks>
+    /// <param name="args">非敏感 daemon 参数。 / Non-sensitive daemon arguments.</param>
+    /// <param name="paths">已初始化的隔离 profile 路径。 / Initialized isolated-profile paths.</param>
+    /// <param name="masterKeyProvider">由 host 使用但不拥有的主密钥持久化边界。 / Master-key persistence boundary used but not owned by the host.</param>
+    /// <returns>已完成依赖装配但尚未运行的 host。 / A composed host that has not started.</returns>
+    internal static IHost Build(
+        string[] args,
+        ScrapPathLayout paths,
+        IMasterKeyProvider masterKeyProvider)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+        ArgumentNullException.ThrowIfNull(paths);
+        ArgumentNullException.ThrowIfNull(masterKeyProvider);
         HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
         builder.Configuration.AddJsonFile(paths.ConfigurationFile, optional: true, reloadOnChange: false);
 
         // A spawned daemon must never inherit Generic Host console logging and corrupt CLI data streams.
         builder.Logging.ClearProviders();
-        builder.Logging.AddProvider(new ScrapFileLoggerProvider(paths.LogFile));
+        // 工厂注册使 host 拥有并释放文件句柄；实例注册会泄露句柄。
+        // Factory registration makes the host own and dispose the file handle; an instance registration would leak it.
+        builder.Services.AddSingleton<ILoggerProvider>(_ => new ScrapFileLoggerProvider(paths.LogFile));
         builder.Logging.AddFilter(static (category, level) =>
             level >= LogLevel.Information
             && category is not null
@@ -44,7 +70,7 @@ internal static class DaemonHost
 
         builder.Services.AddSingleton(paths);
         builder.Services.AddSingleton(IpcEndpointDescriptor.Create(paths));
-        builder.Services.AddSingleton(MasterKeyProviderFactory.Create(paths));
+        builder.Services.AddSingleton(masterKeyProvider);
         builder.Services.AddSingleton(new SqliteStore(paths.DatabaseFile));
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton(Options.Create(daemonOptions));
