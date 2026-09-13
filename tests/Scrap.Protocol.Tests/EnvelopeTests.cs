@@ -220,4 +220,37 @@ public sealed class EnvelopeTests
 
         Assert.Equal(ProtocolErrorCodes.InvalidJson, exception.ErrorCode);
     }
+
+    [Fact]
+    public void ScopeDeleteParams_OldConstructorAndWireRemainCompatible()
+    {
+        var constructed = new ScopeDeleteParams("scope", Recursive: true);
+        ScopeDeleteParams deserialized = ProtocolJson.Deserialize<ScopeDeleteParams>(
+            Encoding.UTF8.GetBytes("""{"name":"scope","recursive":true}"""));
+
+        Assert.Null(constructed.ExpectedRecordCount);
+        Assert.Null(deserialized.ExpectedRecordCount);
+    }
+
+    [Fact]
+    public void ScopeDeleteParams_RoundTripsExpectedRecordCount()
+    {
+        var parameters = new ScopeDeleteParams("scope", Recursive: true, ExpectedRecordCount: 42);
+
+        ScopeDeleteParams actual = ProtocolJson.Deserialize<ScopeDeleteParams>(
+            ProtocolJson.Serialize(parameters));
+
+        Assert.Equal(42, actual.ExpectedRecordCount);
+    }
+
+    [Fact]
+    public void ScopeDeleteParams_RejectsNegativeExpectedRecordCount()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new ScopeDeleteParams("scope", Recursive: true, ExpectedRecordCount: -1));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            ProtocolJson.Deserialize<ScopeDeleteParams>(Encoding.UTF8.GetBytes(
+                """{"name":"scope","recursive":true,"expectedRecordCount":-1}""")));
+    }
 }

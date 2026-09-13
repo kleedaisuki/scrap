@@ -49,7 +49,24 @@ public sealed record ScopeRenameResult(ScopeDto Scope);
 /// </summary>
 /// <param name="Name">待删除的精确 scope 名称。 / Exact scope name to delete.</param>
 /// <param name="Recursive">是否显式允许级联删除 record。 / Whether cascading record deletion is explicitly allowed.</param>
-public sealed record ScopeDeleteParams(string Name, bool Recursive = false);
+/// <param name="ExpectedRecordCount">递归删除的可选事务前置条件；实际数量不同则返回 conflict。 / Optional transactional precondition for recursive deletion; a different actual count produces a conflict.</param>
+public sealed record ScopeDeleteParams(
+    string Name,
+    bool Recursive = false,
+    int? ExpectedRecordCount = null)
+{
+    /// <summary>
+    /// 获取非负的预期 record 数量，或在调用方未指定时返回 null。
+    /// / Gets the non-negative expected record count, or null when the caller did not specify one.
+    /// </summary>
+    public int? ExpectedRecordCount { get; init; } =
+        ExpectedRecordCount is null or >= 0
+            ? ExpectedRecordCount
+            : throw new ArgumentOutOfRangeException(
+                nameof(ExpectedRecordCount),
+                ExpectedRecordCount,
+                "Expected record count cannot be negative.");
+}
 
 /// <summary>
 /// 表示 <c>scope.delete</c> 结果。 / Represents the result of <c>scope.delete</c>.
