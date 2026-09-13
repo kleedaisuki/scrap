@@ -18,4 +18,8 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Scrap.Domain\Scrap.Domain.csproj" />
+  </ItemGroup>
+
 </Project>
