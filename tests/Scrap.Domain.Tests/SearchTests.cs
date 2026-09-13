@@ -165,6 +165,36 @@ public sealed class SearchTests
         Assert.True(allocated < 10_000_000, $"Allocated {allocated} bytes.");
     }
 
+    /// <summary>验证 edit 与 subsequence 在 insensitive 模式按 Unicode scalar 折叠大小写。 / Verifies Unicode-scalar case folding in insensitive edit and subsequence matching.</summary>
+    [Fact]
+    public void FuzzyEditDistanceFoldsSupplementaryUnicodeCase()
+    {
+        var result = RecordSearch.Search(
+            Keys("z\U00010428", "x\U00010400"),
+            Request("y\U00010428", SearchMode.Fuzzy, CaseSensitivity.Insensitive)).Value;
+
+        Assert.Equal(["x\U00010400", "z\U00010428"], Values(result));
+        Assert.Equal(result[0].Score, result[1].Score);
+    }
+
+    /// <summary>验证 regex timeout 是整次搜索预算，而非可按候选重复消耗。 / Verifies that the regex timeout is a whole-search budget rather than a per-candidate renewable allowance.</summary>
+    [Fact]
+    public void RegexTimeoutCoversWholeSearch()
+    {
+        var keys = Enumerable.Range(0, 100)
+            .Select(index => RecordKey.Create(
+                new string('a', 18) + "!" +
+                index.ToString(System.Globalization.CultureInfo.InvariantCulture)))
+            .ToArray();
+
+        var result = RecordSearch.Search(
+            keys,
+            Request("(?=a)(a+)+$", SearchMode.Regex, CaseSensitivity.Sensitive));
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(DomainErrorCode.RegexTimeout, result.Error?.Code);
+    }
+
     private static SearchRequest Request(
         string query,
         SearchMode mode,

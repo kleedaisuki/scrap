@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using System.Text;
+using System.Diagnostics;
 
 namespace Scrap.Domain;
 
@@ -218,6 +219,7 @@ public static class RecordSearch
         IEnumerable<RecordKey> keys,
         SearchRequest request)
     {
+        var elapsed = Stopwatch.StartNew();
         Regex regex;
         try
         {
@@ -241,8 +243,26 @@ public static class RecordSearch
 
         try
         {
-            IReadOnlyList<SearchMatch> matches = keys
-                .Where(key => regex.IsMatch(key.Value))
+            var matchedKeys = new List<RecordKey>();
+            foreach (var key in keys)
+            {
+                if (elapsed.Elapsed >= SearchRequest.RegexTimeout)
+                {
+                    return RegexFailure(DomainErrorCode.RegexTimeout, "regex search exceeded 100 ms.");
+                }
+
+                if (regex.IsMatch(key.Value))
+                {
+                    matchedKeys.Add(key);
+                }
+            }
+
+            if (elapsed.Elapsed >= SearchRequest.RegexTimeout)
+            {
+                return RegexFailure(DomainErrorCode.RegexTimeout, "regex search exceeded 100 ms.");
+            }
+
+            IReadOnlyList<SearchMatch> matches = matchedKeys
                 .OrderBy(key => key.Value, StringComparer.Ordinal)
                 .Take(request.Limit)
                 .Select(key => new SearchMatch(key, ExactScore))
@@ -367,19 +387,28 @@ public static class RecordSearch
 
         var candidateIndex = 0;
         var gapCost = 0;
-        foreach (var queryCharacter in query)
+        for (var queryIndex = 0; queryIndex < query.Length;)
         {
-            var found = candidate.IndexOf(
-                queryCharacter.ToString(),
-                candidateIndex,
-                comparison);
-            if (found < 0)
+            var queryRune = Rune.GetRuneAt(query, queryIndex);
+            queryIndex += queryRune.Utf16SequenceLength;
+            var found = false;
+            while (candidateIndex < candidate.Length)
+            {
+                var candidateRune = Rune.GetRuneAt(candidate, candidateIndex);
+                candidateIndex += candidateRune.Utf16SequenceLength;
+                if (RunesEqual(candidateRune, queryRune, comparison))
+                {
+                    found = true;
+                    break;
+                }
+
+                gapCost++;
+            }
+
+            if (!found)
             {
                 return -1;
             }
-
-            gapCost += found - candidateIndex;
-            candidateIndex = found + 1;
         }
 
         return gapCost;
@@ -390,16 +419,23 @@ public static class RecordSearch
         string query,
         CaseSensitivity caseSensitivity)
     {
+        Span<Rune> candidateRunes = stackalloc Rune[candidate.Length];
+        Span<Rune> queryRunes = stackalloc Rune[query.Length];
+        var candidateLength = CopyRunes(candidate, candidateRunes);
+        var queryLength = CopyRunes(query, queryRunes);
+        candidateRunes = candidateRunes[..candidateLength];
+        queryRunes = queryRunes[..queryLength];
+
         // Edit similarity only resolves nearby candidates. A bounded band avoids turning a
         // legitimate 256-byte query over thousands of keys into unbounded quadratic work.
         // 编辑相似度只用于区分邻近候选；有界带状计算避免合法 256 字节查询在数千 key 上产生无界二次开销。
-        if (Math.Abs(candidate.Length - query.Length) > MaximumEditDistance)
+        if (Math.Abs(candidateRunes.Length - queryRunes.Length) > MaximumEditDistance)
         {
             return MaximumEditDistance + 1;
         }
 
-        var columns = candidate.Length <= query.Length ? candidate : query;
-        var rows = candidate.Length <= query.Length ? query : candidate;
+        var columns = candidateRunes.Length <= queryRunes.Length ? candidateRunes : queryRunes;
+        var rows = candidateRunes.Length <= queryRunes.Length ? queryRunes : candidateRunes;
         Span<int> previous = stackalloc int[columns.Length + 1];
         Span<int> current = stackalloc int[columns.Length + 1];
         var beyondBound = MaximumEditDistance + 1;
@@ -434,12 +470,30 @@ public static class RecordSearch
         return Math.Min(previous[columns.Length], beyondBound);
     }
 
+    private static int CopyRunes(string value, Span<Rune> destination)
+    {
+        var count = 0;
+        foreach (var rune in value.EnumerateRunes())
+        {
+            destination[count++] = rune;
+        }
+
+        return count;
+    }
+
     private static bool CharactersEqual(
-        char left,
-        char right,
+        Rune left,
+        Rune right,
         CaseSensitivity caseSensitivity) => caseSensitivity == CaseSensitivity.Sensitive
             ? left == right
-            : char.ToUpperInvariant(left) == char.ToUpperInvariant(right);
+            : Rune.ToUpperInvariant(left) == Rune.ToUpperInvariant(right);
+
+    private static bool RunesEqual(
+        Rune left,
+        Rune right,
+        StringComparison comparison) => comparison == StringComparison.Ordinal
+            ? left == right
+            : Rune.ToUpperInvariant(left) == Rune.ToUpperInvariant(right);
 
     private static StringComparison ToComparison(CaseSensitivity caseSensitivity) =>
         caseSensitivity == CaseSensitivity.Sensitive
