@@ -130,6 +130,41 @@ public sealed class SearchTests
         Assert.Equal("query", result.Error?.Field);
     }
 
+    /// <summary>验证补充平面 Unicode 字母不会被误判成单词分隔符。 / Verifies that a supplementary-plane Unicode letter is not mistaken for a word boundary.</summary>
+    [Fact]
+    public void FuzzyBoundaryRecognizesSupplementaryUnicodeLetters()
+    {
+        var result = RecordSearch.Search(
+            Keys("xapi", "\U00010400api", "-api"),
+            Request("api", SearchMode.Fuzzy, CaseSensitivity.Sensitive)).Value;
+
+        Assert.Equal(["-api", "xapi", "\U00010400api"], Values(result));
+        Assert.True(result[1].Score > result[2].Score);
+    }
+
+    /// <summary>验证最坏等长 edit 候选不会产生按 DP 单元增长的托管分配。 / Verifies that worst-case equal-length edit candidates do not allocate per dynamic-programming cell.</summary>
+    [Fact]
+    public void FuzzyEditDistanceHasBoundedAllocation()
+    {
+        var keys = Enumerable.Range(0, 2_000)
+            .Select(index => RecordKey.Create(
+                index.ToString("D4", System.Globalization.CultureInfo.InvariantCulture) +
+                new string('x', RecordKey.MaximumUtf8Bytes - 4)))
+            .ToArray();
+        var request = Request(
+            new string('y', RecordKey.MaximumUtf8Bytes),
+            SearchMode.Fuzzy,
+            CaseSensitivity.Sensitive);
+        _ = RecordSearch.Search(keys, request);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var result = RecordSearch.Search(keys, request);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(result.IsSuccess);
+        Assert.True(allocated < 10_000_000, $"Allocated {allocated} bytes.");
+    }
+
     private static SearchRequest Request(
         string query,
         SearchMode mode,

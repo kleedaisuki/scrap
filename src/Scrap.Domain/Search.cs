@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Text;
 
 namespace Scrap.Domain;
 
@@ -161,6 +162,7 @@ public static class RecordSearch
     private const int SubstringScore = 700_000;
     private const int SubsequenceScore = 600_000;
     private const int EditScore = 500_000;
+    private const int MaximumEditDistance = 8;
 
     /// <summary>
     /// 搜索 key 并确定性排序。相同分数按 key 的 ordinal 顺序排列。<br/>
@@ -328,7 +330,7 @@ public static class RecordSearch
         var index = candidate.IndexOf(query, comparison);
         while (index >= 0)
         {
-            if (index == 0 || !char.IsLetterOrDigit(candidate[index - 1]))
+            if (index == 0 || !IsLetterOrDigitBefore(candidate, index))
             {
                 return index;
             }
@@ -340,6 +342,17 @@ public static class RecordSearch
         }
 
         return -1;
+    }
+
+    private static bool IsLetterOrDigitBefore(string candidate, int index)
+    {
+        var last = candidate[index - 1];
+        if (char.IsLowSurrogate(last) && index >= 2 && char.IsHighSurrogate(candidate[index - 2]))
+        {
+            return Rune.IsLetterOrDigit(new Rune(candidate[index - 2], last));
+        }
+
+        return Rune.IsLetterOrDigit(new Rune(last));
     }
 
     private static int ScoreSubsequence(
@@ -377,48 +390,56 @@ public static class RecordSearch
         string query,
         CaseSensitivity caseSensitivity)
     {
-        // 500 is the first distance whose score is clamped to zero. Avoid quadratic work
-        // when the length difference alone proves the candidate cannot score above zero.
-        // 500 是分数首次被截断为零的距离；若仅长度差就能证明结果为零，则避免二次复杂度计算。
-        if (Math.Abs(candidate.Length - query.Length) >= EditScore / 1_000)
+        // Edit similarity only resolves nearby candidates. A bounded band avoids turning a
+        // legitimate 256-byte query over thousands of keys into unbounded quadratic work.
+        // 编辑相似度只用于区分邻近候选；有界带状计算避免合法 256 字节查询在数千 key 上产生无界二次开销。
+        if (Math.Abs(candidate.Length - query.Length) > MaximumEditDistance)
         {
-            return EditScore / 1_000;
+            return MaximumEditDistance + 1;
         }
 
-        var previous = new int[query.Length + 1];
-        var current = new int[query.Length + 1];
-        for (var column = 0; column <= query.Length; column++)
+        var columns = candidate.Length <= query.Length ? candidate : query;
+        var rows = candidate.Length <= query.Length ? query : candidate;
+        Span<int> previous = stackalloc int[columns.Length + 1];
+        Span<int> current = stackalloc int[columns.Length + 1];
+        var beyondBound = MaximumEditDistance + 1;
+
+        for (var column = 0; column <= columns.Length; column++)
         {
-            previous[column] = column;
+            previous[column] = column <= MaximumEditDistance ? column : beyondBound;
         }
 
-        for (var row = 1; row <= candidate.Length; row++)
+        for (var row = 1; row <= rows.Length; row++)
         {
-            current[0] = row;
-            for (var column = 1; column <= query.Length; column++)
+            current.Fill(beyondBound);
+            current[0] = row <= MaximumEditDistance ? row : beyondBound;
+            var firstColumn = Math.Max(1, row - MaximumEditDistance);
+            var lastColumn = Math.Min(columns.Length, row + MaximumEditDistance);
+            for (var column = firstColumn; column <= lastColumn; column++)
             {
                 var substitution = CharactersEqual(
-                    candidate[row - 1],
-                    query[column - 1],
+                    rows[row - 1],
+                    columns[column - 1],
                     caseSensitivity) ? 0 : 1;
                 current[column] = Math.Min(
                     Math.Min(current[column - 1] + 1, previous[column] + 1),
                     previous[column - 1] + substitution);
             }
 
-            (previous, current) = (current, previous);
+            var temporary = previous;
+            previous = current;
+            current = temporary;
         }
 
-        return previous[query.Length];
+        return Math.Min(previous[columns.Length], beyondBound);
     }
 
     private static bool CharactersEqual(
         char left,
         char right,
-        CaseSensitivity caseSensitivity) => string.Equals(
-            left.ToString(),
-            right.ToString(),
-            ToComparison(caseSensitivity));
+        CaseSensitivity caseSensitivity) => caseSensitivity == CaseSensitivity.Sensitive
+            ? left == right
+            : char.ToUpperInvariant(left) == char.ToUpperInvariant(right);
 
     private static StringComparison ToComparison(CaseSensitivity caseSensitivity) =>
         caseSensitivity == CaseSensitivity.Sensitive
