@@ -31,9 +31,11 @@ cd scrap-vX.Y.Z-linux-x64
 Windows PowerShell：
 
 ```powershell
-Get-FileHash .\scrap-vX.Y.Z-win-x64.zip -Algorithm SHA256
-Expand-Archive .\scrap-vX.Y.Z-win-x64.zip
-cd .\scrap-vX.Y.Z-win-x64\scrap-vX.Y.Z-win-x64
+$expected = (Get-Content .\scrap-vX.Y.Z-win-x64.zip.sha256).Split()[0]
+$actual = (Get-FileHash .\scrap-vX.Y.Z-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actual -ne $expected) { throw "SHA-256 mismatch" }
+Expand-Archive .\scrap-vX.Y.Z-win-x64.zip -DestinationPath .
+cd .\scrap-vX.Y.Z-win-x64
 .\install.ps1
 ```
 
