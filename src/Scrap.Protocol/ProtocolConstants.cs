@@ -19,4 +19,16 @@ public static class ProtocolConstants
     /// 长度前缀的固定字节数。 / Gets the fixed length-prefix size in bytes.
     /// </summary>
     public const int FrameHeaderSize = sizeof(uint);
+
+    /// <summary>
+    /// <c>record.list</c> 未指定 limit 时使用的默认页大小。
+    /// / Gets the default page size used when <c>record.list</c> does not specify a limit.
+    /// </summary>
+    public const int DefaultRecordListPageSize = 100;
+
+    /// <summary>
+    /// <c>record.list</c> 单页允许的最大 record 数量。
+    /// / Gets the maximum number of records permitted in one <c>record.list</c> page.
+    /// </summary>
+    public const int MaxRecordListPageSize = 1000;
 }

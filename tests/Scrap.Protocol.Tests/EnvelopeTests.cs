@@ -123,4 +123,38 @@ public sealed class EnvelopeTests
         Assert.Equal(methods.Length, methods.Distinct(StringComparer.Ordinal).Count());
         Assert.Contains("record.rename", methods, StringComparer.Ordinal);
     }
+
+    [Fact]
+    public void RecordListParams_OldScopeOnlyPayloadUsesDefaultPageSize()
+    {
+        RecordListParams parameters = ProtocolJson.Deserialize<RecordListParams>(
+            Encoding.UTF8.GetBytes("""{"scope":"production"}"""));
+
+        Assert.Equal("production", parameters.Scope);
+        Assert.Null(parameters.AfterKey);
+        Assert.Equal(ProtocolConstants.DefaultRecordListPageSize, parameters.Limit);
+        Assert.True(ProtocolConstants.MaxRecordListPageSize > parameters.Limit);
+    }
+
+    [Fact]
+    public void RecordListPagination_RoundTripsOrdinalCursor()
+    {
+        var parameters = new RecordListParams("scope", "API_TOKEN", 25);
+        var result = new RecordListResult([], "api_token");
+
+        string parametersJson = Encoding.UTF8.GetString(ProtocolJson.Serialize(parameters));
+        string resultJson = Encoding.UTF8.GetString(ProtocolJson.Serialize(result));
+
+        Assert.Contains("\"afterKey\":\"API_TOKEN\"", parametersJson, StringComparison.Ordinal);
+        Assert.Contains("\"limit\":25", parametersJson, StringComparison.Ordinal);
+        Assert.Contains("\"nextCursor\":\"api_token\"", resultJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RecordListFinalPage_OmitsNullCursorForWireCompatibility()
+    {
+        string json = Encoding.UTF8.GetString(ProtocolJson.Serialize(new RecordListResult([])));
+
+        Assert.DoesNotContain("nextCursor", json, StringComparison.Ordinal);
+    }
 }

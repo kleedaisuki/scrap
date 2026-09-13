@@ -127,11 +127,23 @@ public sealed record RecordDeleteResult;
 /// 表示 <c>record.list</c> 参数。 / Represents <c>record.list</c> parameters.
 /// </summary>
 /// <param name="Scope">要列出的精确 scope 名称。 / Exact scope name to list.</param>
-public sealed record RecordListParams(string Scope);
+/// <param name="AfterKey">上一页最后一个 key；下一页从其 ordinal 后继项开始。 / Last key of the previous page; the next page starts at its ordinal successor.</param>
+/// <param name="Limit">本页最多返回的 record 数量。 / Maximum records to return in this page.</param>
+/// <remarks>
+/// daemon 必须按 key 的 ordinal 顺序执行 keyset pagination；不得把 <paramref name="AfterKey"/> 当作数值 offset。
+/// / The daemon must perform keyset pagination in ordinal key order; <paramref name="AfterKey"/> is not a numeric offset.
+/// </remarks>
+public sealed record RecordListParams(
+    string Scope,
+    string? AfterKey = null,
+    int Limit = ProtocolConstants.DefaultRecordListPageSize);
 
 /// <summary>
 /// 表示 <c>record.list</c> 结果，始终不含 value。
 /// / Represents the result of <c>record.list</c>, which never contains values.
 /// </summary>
 /// <param name="Records">record 元数据。 / Record metadata.</param>
-public sealed record RecordListResult(IReadOnlyList<RecordSummaryDto> Records);
+/// <param name="NextCursor">存在下一页时应作为后续 <see cref="RecordListParams.AfterKey"/> 传回的 key；末页为 null。 / Key to pass back as <see cref="RecordListParams.AfterKey"/> when another page exists; null on the final page.</param>
+public sealed record RecordListResult(
+    IReadOnlyList<RecordSummaryDto> Records,
+    string? NextCursor = null);
