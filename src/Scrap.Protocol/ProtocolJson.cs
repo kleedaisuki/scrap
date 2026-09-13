@@ -98,6 +98,7 @@ public static class ProtocolJson
             WriteIndented = false,
         };
 
+        options.Converters.Add(new ProtocolStringConverter());
         options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false));
         options.MakeReadOnly();
         return options;

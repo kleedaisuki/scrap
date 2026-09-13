@@ -119,6 +119,19 @@ public sealed class FramingTests
         Assert.Equal(ProtocolErrorCodes.InvalidRequest, exception.ErrorCode);
     }
 
+    [Fact]
+    public async Task ReadAsync_MapsEscapedUnpairedSurrogateToInvalidJson()
+    {
+        byte[] payload = Encoding.UTF8.GetBytes(
+            """{"scope":"s","key":"k","value":"\uD800","presentation":"masked"}""");
+        await using var stream = Frame(payload);
+
+        ProtocolException exception = await Assert.ThrowsAsync<ProtocolException>(
+            async () => await LengthPrefixedJsonFraming.ReadAsync<RecordSetParams>(stream));
+
+        Assert.Equal(ProtocolErrorCodes.InvalidJson, exception.ErrorCode);
+    }
+
     public static TheoryData<byte[]> InvalidUtf8Payloads
     {
         get

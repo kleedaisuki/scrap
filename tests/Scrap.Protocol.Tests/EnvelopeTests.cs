@@ -157,4 +157,67 @@ public sealed class EnvelopeTests
 
         Assert.DoesNotContain("nextCursor", json, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Serialize_RejectsIsolatedSurrogateInRecordValue()
+    {
+        string invalidValue = new(['\uD800']);
+        var parameters = new RecordSetParams("scope", "key", invalidValue);
+
+        JsonException exception = Assert.Throws<JsonException>(() => ProtocolJson.Serialize(parameters));
+
+        Assert.DoesNotContain(invalidValue, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ToElement_RejectsIsolatedSurrogateInNestedRecordKey()
+    {
+        string invalidKey = new(['\uDFFF']);
+        var summary = new RecordSummaryDto(
+            "scope",
+            invalidKey,
+            RecordPresentation.Masked,
+            DateTimeOffset.UnixEpoch,
+            DateTimeOffset.UnixEpoch,
+            1);
+
+        Assert.Throws<JsonException>(() => ProtocolJson.ToElement(new RecordListResult([summary])));
+    }
+
+    [Theory]
+    [InlineData("D800")]
+    [InlineData("DFFF")]
+    public void Deserialize_RejectsEscapedUnpairedSurrogateInNestedValue(string surrogate)
+    {
+        string json = $$"""
+            {"scope":"s","key":"k","value":"\u{{surrogate}}","presentation":"masked"}
+            """;
+
+        Assert.Throws<JsonException>(() =>
+            ProtocolJson.Deserialize<RecordSetParams>(Encoding.UTF8.GetBytes(json)));
+    }
+
+    [Fact]
+    public void Deserialize_AcceptsEscapedSurrogatePairWithoutReplacement()
+    {
+        const string json = """
+            {"scope":"s","key":"k","value":"\uD83D\uDE00","presentation":"plain"}
+            """;
+
+        RecordSetParams parameters = ProtocolJson.Deserialize<RecordSetParams>(Encoding.UTF8.GetBytes(json));
+
+        Assert.Equal("😀", parameters.Value);
+    }
+
+    [Fact]
+    public void DeserializeElement_RejectsEscapedUnpairedSurrogateInEnvelopeParams()
+    {
+        using JsonDocument document = JsonDocument.Parse(
+            """{"scope":"s","key":"\uD800","value":"v","presentation":"masked"}""");
+
+        ProtocolException exception = Assert.Throws<ProtocolException>(() =>
+            ProtocolJson.DeserializeElement<RecordSetParams>(document.RootElement));
+
+        Assert.Equal(ProtocolErrorCodes.InvalidJson, exception.ErrorCode);
+    }
 }
