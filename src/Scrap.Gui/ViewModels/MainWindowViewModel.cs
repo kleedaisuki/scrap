@@ -946,14 +946,29 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         IsBusy = true;
         try
         {
-            await _client.DeleteScopeAsync(scope.Name, scope.RecordCount > 0, CancellationToken.None);
+            bool recursive = scope.RecordCount > 0;
+            await _client.DeleteScopeAsync(
+                scope.Name,
+                recursive,
+                recursive ? scope.RecordCount : null,
+                CancellationToken.None);
             CloseModals();
             await LoadScopesAsync();
             ShowToast("Scope 已删除 / Scope deleted");
         }
         catch (Exception exception)
         {
-            HandleMutationError(exception);
+            SetError(exception);
+            if (exception is ScrapClientException { Kind: ScrapClientErrorKind.Conflict })
+            {
+                CloseModals();
+                ErrorMessage = "Scope 内容在确认后发生变化，未执行删除。请重新打开删除确认并核对最新数量。 / " +
+                    "The scope changed after confirmation, so nothing was deleted. Reopen deletion and review the latest count.";
+            }
+            else if (exception is ScrapClientException { Kind: ScrapClientErrorKind.OutcomeUnknown })
+            {
+                CloseModals();
+            }
         }
         finally
         {

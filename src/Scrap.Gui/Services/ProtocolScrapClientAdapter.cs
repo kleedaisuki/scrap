@@ -71,12 +71,16 @@ internal sealed class ProtocolScrapClientAdapter : IScrapClient
     }
 
     /// <inheritdoc />
-    public async Task DeleteScopeAsync(string name, bool recursive, CancellationToken cancellationToken)
+    public async Task DeleteScopeAsync(
+        string name,
+        bool recursive,
+        int? expectedRecordCount,
+        CancellationToken cancellationToken)
     {
         try
         {
             SharedClient client = await GetMutationClientAsync(cancellationToken);
-            await client.DeleteScopeAsync(name, recursive, cancellationToken);
+            await client.DeleteScopeAsync(name, recursive, expectedRecordCount, cancellationToken);
         }
         catch (Exception exception)
         {

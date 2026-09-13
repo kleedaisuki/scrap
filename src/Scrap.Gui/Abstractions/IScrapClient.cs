@@ -25,7 +25,11 @@ public interface IScrapClient : IAsyncDisposable
     /// 删除 scope；非空 scope 只有在 recursive 为 true 时才可删除。
     /// Deletes a scope; a non-empty scope may only be deleted when recursive is true.
     /// </summary>
-    Task DeleteScopeAsync(string name, bool recursive, CancellationToken cancellationToken);
+    Task DeleteScopeAsync(
+        string name,
+        bool recursive,
+        int? expectedRecordCount,
+        CancellationToken cancellationToken);
 
     /// <summary>搜索 key 候选。Searches key candidates.</summary>
     Task<IReadOnlyList<RecordCandidate>> SearchAsync(

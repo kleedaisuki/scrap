@@ -23,7 +23,11 @@ internal sealed class UnavailableScrapClient : IScrapClient
     public Task RenameScopeAsync(string oldName, string newName, CancellationToken cancellationToken) => Failed();
 
     /// <inheritdoc />
-    public Task DeleteScopeAsync(string name, bool recursive, CancellationToken cancellationToken) => Failed();
+    public Task DeleteScopeAsync(
+        string name,
+        bool recursive,
+        int? expectedRecordCount,
+        CancellationToken cancellationToken) => Failed();
 
     /// <inheritdoc />
     public Task<IReadOnlyList<RecordCandidate>> SearchAsync(RecordSearchRequest request, CancellationToken cancellationToken) => Failed<IReadOnlyList<RecordCandidate>>();
