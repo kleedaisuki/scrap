@@ -18,4 +18,8 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Scrap.Storage.Sqlite\Scrap.Storage.Sqlite.csproj" />
+  </ItemGroup>
+
 </Project>
