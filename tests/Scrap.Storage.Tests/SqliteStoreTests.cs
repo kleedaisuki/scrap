@@ -14,6 +14,7 @@ public sealed class SqliteStoreTests
     private static readonly string[] RenamedKeys = ["a", "b"];
     private static readonly string[] FirstKeysetPage = ["A", "a"];
     private static readonly string[] OrdinalEdgeCaseOrder = ["\U00010000", "\uE000", "\uFFFF"];
+    private static readonly byte[] IdentityNonce = [1];
 
     [Fact]
     public void InitializeCreatesVersionOneSchemaAndRequiredPragmas()
@@ -56,6 +57,32 @@ public sealed class SqliteStoreTests
 
         var exception = Assert.Throws<StorageMigrationException>(database.Store.Initialize);
         Assert.Contains("newer", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void InitializeRejectsFakeVersionOneWithoutUniqueAndForeignKeyContracts()
+    {
+        using var database = TestDatabase.Create(initialize: false);
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(database.Path)!);
+        using (var connection = database.OpenRawConnection(create: true))
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                INSERT INTO meta(key, value) VALUES ('schema_version', '1');
+                CREATE TABLE scopes (
+                    id INTEGER PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+                CREATE TABLE records (
+                    id TEXT PRIMARY KEY, scope_id INTEGER NOT NULL, key TEXT NOT NULL,
+                    value_ciphertext BLOB NOT NULL, nonce BLOB NOT NULL, crypto_version INTEGER NOT NULL,
+                    presentation INTEGER NOT NULL, revision INTEGER NOT NULL,
+                    created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+                CREATE INDEX records_by_scope ON records(scope_id);
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        Assert.Throws<StorageMigrationException>(database.Store.Initialize);
     }
 
     [Fact]
@@ -189,6 +216,70 @@ public sealed class SqliteStoreTests
             0,
             _ => Protected("stale"),
             expectedUpdatedAt: first.UpdatedAt));
+    }
+
+    [Fact]
+    public void ExpectedRevisionZeroCreatesOnlyAndNeverOverwrites()
+    {
+        using var database = TestDatabase.Create();
+        database.Store.CreateScope("dev");
+        var created = database.Store.SetRecordDetailed(
+            "dev", "key", 0, _ => Protected("original"), expectedRevision: 0);
+        var callbackInvoked = false;
+
+        var exception = Assert.Throws<StorageConflictException>(() => database.Store.SetRecordDetailed(
+            "dev",
+            "key",
+            1,
+            _ =>
+            {
+                callbackInvoked = true;
+                return Protected("must-not-overwrite");
+            },
+            expectedRevision: 0));
+
+        Assert.True(created.Created);
+        Assert.Equal(1, created.Record.Revision);
+        Assert.Equal(StorageConflictKind.Concurrency, exception.Kind);
+        Assert.False(callbackInvoked);
+        AssertRecordEquivalent(created.Record, database.Store.GetRecord("dev", "key"));
+        Assert.Throws<ArgumentOutOfRangeException>(() => database.Store.SetRecord(
+            "dev", "negative", 0, _ => Protected("value"), expectedRevision: -1));
+    }
+
+    [Fact]
+    public async Task ExactGetNeverMixesScopeNameAndCiphertextDuringConcurrentRenames()
+    {
+        using var database = TestDatabase.Create();
+        database.Store.CreateScope("a");
+        database.Store.SetRecord("a", "key", 0, identity => IdentityProtected(identity));
+        using var start = new ManualResetEventSlim();
+        const int renameCount = 200;
+        const int readsPerWorker = 800;
+
+        var writer = Task.Run(() =>
+        {
+            start.Wait();
+            var current = "a";
+            for (var index = 0; index < renameCount; index++)
+            {
+                var next = current == "a" ? "b" : "a";
+                database.Store.RenameScope(current, next, (_, identity) => IdentityProtected(identity));
+                current = next;
+            }
+        });
+        var readers = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
+        {
+            start.Wait();
+            for (var index = 0; index < readsPerWorker; index++)
+            {
+                AssertIdentityCipherMatches(database.Store.GetRecord("a", "key"));
+                AssertIdentityCipherMatches(database.Store.GetRecord("b", "key"));
+            }
+        })).ToArray();
+
+        start.Set();
+        await Task.WhenAll([writer, .. readers]);
     }
 
     [Fact]
@@ -460,6 +551,23 @@ public sealed class SqliteStoreTests
         RandomNumberGenerator.GetBytes(12),
         cryptoVersion);
 
+    private static ProtectedValue IdentityProtected(RecordIdentity identity) => new(
+        Encoding.UTF8.GetBytes($"{identity.ScopeName}|{identity.Key}"),
+        IdentityNonce,
+        1);
+
+    private static void AssertIdentityCipherMatches(StoredRecord? record)
+    {
+        if (record is null)
+        {
+            return;
+        }
+
+        Assert.Equal(
+            $"{record.Identity.ScopeName}|{record.Identity.Key}",
+            Encoding.UTF8.GetString(record.Value.Ciphertext.Span));
+    }
+
     private static bool Contains(byte[] haystack, byte[] needle) => haystack.AsSpan().IndexOf(needle) >= 0;
 
     private static byte[] ReadShared(string path)
@@ -518,19 +626,24 @@ internal sealed class TestDatabase : IDisposable
     public SqliteStore Store { get; }
 
     /// <summary>创建隔离的真实数据库。 / Creates an isolated real database.</summary>
-    public static TestDatabase Create()
+    public static TestDatabase Create(bool initialize = true)
     {
         var directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "scrap-storage-tests", Guid.NewGuid().ToString("N"));
         var path = System.IO.Path.Combine(directory, "scrap.db");
         var store = new SqliteStore(path);
-        store.Initialize();
+        if (initialize)
+        {
+            store.Initialize();
+        }
+
         return new TestDatabase(directory, path, store);
     }
 
     /// <summary>打开绕过 store 的探查连接，仅供验证 schema。 / Opens a raw inspection connection used only for schema verification.</summary>
-    public SqliteConnection OpenRawConnection()
+    public SqliteConnection OpenRawConnection(bool create = false)
     {
-        var connection = new SqliteConnection($"Data Source={Path};Mode=ReadWrite");
+        var mode = create ? "ReadWriteCreate" : "ReadWrite";
+        var connection = new SqliteConnection($"Data Source={Path};Mode={mode}");
         connection.Open();
         return connection;
     }

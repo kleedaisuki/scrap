@@ -18,6 +18,16 @@ public sealed class SqliteStore
 
     private const string SchemaVersionKey = "schema_version";
     private const string OrdinalCollation = "SCRAP_ORDINAL";
+    private static readonly string[] MetaColumns = ["key", "value"];
+    private static readonly string[] ScopeColumns = ["id", "name", "created_at", "updated_at"];
+    private static readonly string[] RecordColumns =
+    [
+        "id", "scope_id", "key", "value_ciphertext", "nonce", "crypto_version",
+        "presentation", "revision", "created_at", "updated_at",
+    ];
+    private static readonly string[] ScopeNameIndexColumns = ["name"];
+    private static readonly string[] RecordIdentityIndexColumns = ["scope_id", "key"];
+    private static readonly string[] RecordScopeIndexColumns = ["scope_id"];
     private readonly string connectionString;
     private readonly int busyTimeoutMilliseconds;
     private readonly object initializationGate = new();
@@ -228,12 +238,13 @@ public sealed class SqliteStore
         ValidateName(scopeName, nameof(scopeName));
         ValidateName(key, nameof(key));
         using var connection = OpenConnection();
-        var scope = FindScope(connection, transaction: null, scopeName)
+        using var transaction = connection.BeginTransaction(deferred: true);
+        var scope = FindScope(connection, transaction, scopeName)
             ?? throw new StorageNotFoundException(StorageEntityKind.Scope, scopeName);
-        var existing = FindRecord(connection, transaction: null, scope.Id, scopeName, key);
+        var existing = FindRecord(connection, transaction, scope.Id, scopeName, key);
         if (existing is null)
         {
-            return new RecordSetPreparation(
+            var preparation = new RecordSetPreparation(
                 new RecordIdentity(CurrentSchemaVersion, Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture), scopeName, key),
                 scope.Id,
                 IsNew: true,
@@ -241,9 +252,11 @@ public sealed class SqliteStore
                 CurrentPresentation: null,
                 NormalizeTimestamp(now),
                 CurrentUpdatedAt: null);
+            transaction.Commit();
+            return preparation;
         }
 
-        return new RecordSetPreparation(
+        var existingPreparation = new RecordSetPreparation(
             existing.Identity,
             scope.Id,
             IsNew: false,
@@ -251,6 +264,8 @@ public sealed class SqliteStore
             existing.Presentation,
             existing.CreatedAt,
             existing.UpdatedAt);
+        transaction.Commit();
+        return existingPreparation;
     }
 
     /// <summary>
@@ -266,6 +281,7 @@ public sealed class SqliteStore
         DateTimeOffset? expectedUpdatedAt = null)
     {
         ValidatePreparation(preparation);
+        ValidateExpectedRevision(expectedRevision);
         value = ValidateProtectedValue(value);
         var timestamp = NormalizeTimestamp(updatedAt);
         using var connection = OpenConnection();
@@ -331,7 +347,9 @@ public sealed class SqliteStore
         DateTimeOffset? expectedUpdatedAt = null)
     {
         ArgumentNullException.ThrowIfNull(protect);
+        ValidateExpectedRevision(expectedRevision);
         var preparation = PrepareSetRecord(scopeName, key, now);
+        CheckPreparationConcurrency(preparation, expectedRevision, expectedUpdatedAt);
         var value = ValidateProtectedValue(protect(preparation.Identity));
         return CommitPreparedRecord(preparation, value, presentation, now, expectedRevision, expectedUpdatedAt);
     }
@@ -342,8 +360,21 @@ public sealed class SqliteStore
         ValidateName(scopeName, nameof(scopeName));
         ValidateName(key, nameof(key));
         using var connection = OpenConnection();
-        var scope = FindScope(connection, transaction: null, scopeName);
-        return scope is null ? null : FindRecord(connection, transaction: null, scope.Id, scopeName, key);
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT scopes.id, scopes.name,
+                   records.id, records.key, records.value_ciphertext, records.nonce,
+                   records.crypto_version, records.presentation, records.revision,
+                   records.created_at, records.updated_at
+            FROM scopes
+            INNER JOIN records ON records.scope_id = scopes.id
+            WHERE scopes.name = $scopeName COLLATE BINARY
+              AND records.key = $key COLLATE BINARY;
+            """;
+        command.Parameters.AddWithValue("$scopeName", scopeName);
+        command.Parameters.AddWithValue("$key", key);
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadJoinedRecord(reader) : null;
     }
 
     /// <summary>以 .NET ordinal key 顺序列出 scope 的加密 records。 / Lists encrypted records by .NET ordinal key order.</summary>
@@ -351,8 +382,11 @@ public sealed class SqliteStore
     {
         ValidateName(scopeName, nameof(scopeName));
         using var connection = OpenConnection();
-        var scope = FindScope(connection, transaction: null, scopeName) ?? throw new StorageNotFoundException(StorageEntityKind.Scope, scopeName);
-        return ReadRecords(connection, transaction: null, scope.Id, scopeName);
+        using var transaction = connection.BeginTransaction(deferred: true);
+        var scope = FindScope(connection, transaction, scopeName) ?? throw new StorageNotFoundException(StorageEntityKind.Scope, scopeName);
+        var records = ReadRecords(connection, transaction, scope.Id, scopeName);
+        transaction.Commit();
+        return records;
     }
 
     /// <summary>
@@ -366,9 +400,11 @@ public sealed class SqliteStore
         ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(limit, 10_000);
         using var connection = OpenConnection();
-        var scope = FindScope(connection, transaction: null, scopeName)
+        using var transaction = connection.BeginTransaction(deferred: true);
+        var scope = FindScope(connection, transaction, scopeName)
             ?? throw new StorageNotFoundException(StorageEntityKind.Scope, scopeName);
         using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             SELECT id, key, presentation, revision, created_at, updated_at
             FROM records
@@ -386,6 +422,8 @@ public sealed class SqliteStore
             records.Add(ReadRecordMetadata(reader, scope.Id, scopeName));
         }
 
+        reader.Close();
+        transaction.Commit();
         return records;
     }
 
@@ -407,9 +445,11 @@ public sealed class SqliteStore
         ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(limit, 1001);
         using var connection = OpenConnection();
-        var scope = FindScope(connection, transaction: null, scopeName)
+        using var transaction = connection.BeginTransaction(deferred: true);
+        var scope = FindScope(connection, transaction, scopeName)
             ?? throw new StorageNotFoundException(StorageEntityKind.Scope, scopeName);
         using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             SELECT id, key, presentation, revision, created_at, updated_at
             FROM records
@@ -428,6 +468,8 @@ public sealed class SqliteStore
             records.Add(ReadRecordMetadata(reader, scope.Id, scopeName));
         }
 
+        reader.Close();
+        transaction.Commit();
         return records;
     }
 
@@ -439,9 +481,11 @@ public sealed class SqliteStore
     {
         ValidateName(scopeName, nameof(scopeName));
         using var connection = OpenConnection();
-        var scope = FindScope(connection, transaction: null, scopeName)
+        using var transaction = connection.BeginTransaction(deferred: true);
+        var scope = FindScope(connection, transaction, scopeName)
             ?? throw new StorageNotFoundException(StorageEntityKind.Scope, scopeName);
         using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             SELECT id, key, presentation, revision, created_at, updated_at
             FROM records
@@ -456,6 +500,8 @@ public sealed class SqliteStore
             records.Add(ReadRecordMetadata(reader, scope.Id, scopeName));
         }
 
+        reader.Close();
+        transaction.Commit();
         return records;
     }
 
@@ -468,6 +514,7 @@ public sealed class SqliteStore
     {
         ValidateName(scopeName, nameof(scopeName));
         ValidateName(key, nameof(key));
+        ValidateExpectedRevision(expectedRevision);
         using var connection = OpenConnection();
         using var transaction = connection.BeginTransaction(deferred: false);
         var scope = FindScope(connection, transaction, scopeName) ?? throw new StorageNotFoundException(StorageEntityKind.Scope, scopeName);
@@ -499,6 +546,7 @@ public sealed class SqliteStore
         ValidateName(oldKey, nameof(oldKey));
         ValidateName(newKey, nameof(newKey));
         ArgumentNullException.ThrowIfNull(reencrypt);
+        ValidateExpectedRevision(expectedRevision);
         using var connection = OpenConnection();
         using var transaction = connection.BeginTransaction(deferred: false);
         var scope = FindScope(connection, transaction, scopeName) ?? throw new StorageNotFoundException(StorageEntityKind.Scope, scopeName);
@@ -795,12 +843,19 @@ public sealed class SqliteStore
             }
         }
 
-        foreach (var column in new[] { "crypto_version", "revision" })
+        EnsureColumns(connection, transaction, "meta", MetaColumns);
+        EnsureColumns(connection, transaction, "scopes", ScopeColumns);
+        EnsureColumns(connection, transaction, "records", RecordColumns);
+        if (!HasIndex(connection, transaction, "scopes", requiredName: null, unique: true, ScopeNameIndexColumns) ||
+            !HasIndex(connection, transaction, "records", requiredName: null, unique: true, RecordIdentityIndexColumns) ||
+            !HasIndex(connection, transaction, "records", "records_by_scope", unique: false, RecordScopeIndexColumns))
         {
-            if (!ColumnExists(connection, transaction, "records", column))
-            {
-                throw new StorageMigrationException($"Schema version 1 is missing required records column '{column}'.");
-            }
+            throw new StorageMigrationException("Schema version 1 is missing a required UNIQUE or records_by_scope index.");
+        }
+
+        if (!HasRecordsScopeForeignKey(connection, transaction))
+        {
+            throw new StorageMigrationException("Schema version 1 is missing records(scope_id) -> scopes(id) ON DELETE CASCADE.");
         }
     }
 
@@ -813,15 +868,87 @@ public sealed class SqliteStore
         return (long)(command.ExecuteScalar() ?? 0L) != 0;
     }
 
-    private static bool ColumnExists(SqliteConnection connection, SqliteTransaction transaction, string tableName, string columnName)
+    private static void EnsureColumns(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string tableName,
+        IReadOnlyCollection<string> requiredColumns)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = $"PRAGMA table_info({tableName});";
         using var reader = command.ExecuteReader();
+        var actual = new HashSet<string>(StringComparer.Ordinal);
         while (reader.Read())
         {
-            if (string.Equals(reader.GetString(1), columnName, StringComparison.Ordinal))
+            actual.Add(reader.GetString(1));
+        }
+
+        var missing = requiredColumns.Where(column => !actual.Contains(column)).ToArray();
+        if (missing.Length != 0)
+        {
+            throw new StorageMigrationException(
+                $"Schema version 1 table '{tableName}' is missing required columns: {string.Join(", ", missing)}.");
+        }
+    }
+
+    private static bool HasIndex(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string tableName,
+        string? requiredName,
+        bool unique,
+        IReadOnlyList<string> requiredColumns)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"PRAGMA index_list({tableName});";
+        using var reader = command.ExecuteReader();
+        var candidates = new List<string>();
+        while (reader.Read())
+        {
+            var name = reader.GetString(1);
+            if (reader.GetInt64(2) == (unique ? 1 : 0) &&
+                (requiredName is null || string.Equals(name, requiredName, StringComparison.Ordinal)))
+            {
+                candidates.Add(name);
+            }
+        }
+
+        reader.Close();
+        return candidates.Any(name => ReadIndexColumns(connection, transaction, name).SequenceEqual(requiredColumns));
+    }
+
+    private static List<string> ReadIndexColumns(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string indexName)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"PRAGMA index_info(\"{indexName.Replace("\"", "\"\"", StringComparison.Ordinal)}\");";
+        using var reader = command.ExecuteReader();
+        var columns = new List<string>();
+        while (reader.Read())
+        {
+            columns.Add(reader.GetString(2));
+        }
+
+        return columns;
+    }
+
+    private static bool HasRecordsScopeForeignKey(SqliteConnection connection, SqliteTransaction transaction)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "PRAGMA foreign_key_list(records);";
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(2), "scopes", StringComparison.Ordinal) &&
+                string.Equals(reader.GetString(3), "scope_id", StringComparison.Ordinal) &&
+                string.Equals(reader.GetString(4), "id", StringComparison.Ordinal) &&
+                string.Equals(reader.GetString(6), "CASCADE", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
@@ -1100,6 +1227,23 @@ public sealed class SqliteStore
             ParseTimestamp(reader.GetString(8)));
     }
 
+    /// <summary>读取单条 JOIN 结果，使 scope 名称与密文必然来自同一 SQLite statement snapshot。 / Reads one JOIN result so scope name and ciphertext necessarily come from one SQLite statement snapshot.</summary>
+    private static StoredRecord ReadJoinedRecord(SqliteDataReader reader)
+    {
+        var scopeId = reader.GetInt64(0);
+        var scopeName = reader.GetString(1);
+        var identity = new RecordIdentity(CurrentSchemaVersion, reader.GetString(2), scopeName, reader.GetString(3));
+        var value = new ProtectedValue((byte[])reader[4], (byte[])reader[5], reader.GetInt32(6));
+        return new StoredRecord(
+            identity,
+            scopeId,
+            value,
+            reader.GetInt32(7),
+            reader.GetInt64(8),
+            ParseTimestamp(reader.GetString(9)),
+            ParseTimestamp(reader.GetString(10)));
+    }
+
     private static StoredRecordMetadata ReadRecordMetadata(SqliteDataReader reader, long scopeId, string scopeName) => new(
         new RecordIdentity(CurrentSchemaVersion, reader.GetString(0), scopeName, reader.GetString(1)),
         scopeId,
@@ -1208,7 +1352,14 @@ public sealed class SqliteStore
         DateTimeOffset? expectedUpdatedAt,
         string identity)
     {
-        if (expectedRevision is not null && (record is null || record.Revision != expectedRevision.Value))
+        if (expectedRevision == 0)
+        {
+            if (record is not null)
+            {
+                throw new StorageConflictException(StorageConflictKind.Concurrency, $"Record already exists: {identity}");
+            }
+        }
+        else if (expectedRevision is not null && (record is null || record.Revision != expectedRevision.Value))
         {
             throw new StorageConflictException(StorageConflictKind.Concurrency, $"Record revision does not match: {identity}");
         }
@@ -1217,6 +1368,37 @@ public sealed class SqliteStore
             (record is null || record.UpdatedAt != expectedUpdatedAt.Value.ToUniversalTime()))
         {
             throw new StorageConflictException(StorageConflictKind.Concurrency, $"Record updated_at does not match: {identity}");
+        }
+    }
+
+    /// <summary>revision 0 是 create-only sentinel；持久化 revision 从 1 开始，负数非法。 / Revision 0 is the create-only sentinel; persisted revisions start at 1 and negatives are invalid.</summary>
+    private static void ValidateExpectedRevision(long? expectedRevision)
+    {
+        if (expectedRevision < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(expectedRevision), "Expected revision must not be negative.");
+        }
+    }
+
+    /// <summary>在执行昂贵 AEAD 前先按 preparation 快速拒绝已知不满足的条件；commit 仍会再次 CAS。 / Rejects conditions known to fail from the preparation before expensive AEAD; commit still repeats the CAS.</summary>
+    private static void CheckPreparationConcurrency(
+        RecordSetPreparation preparation,
+        long? expectedRevision,
+        DateTimeOffset? expectedUpdatedAt)
+    {
+        if (expectedRevision == 0 && !preparation.IsNew)
+        {
+            throw new StorageConflictException(StorageConflictKind.Concurrency, "Create-only record already exists.");
+        }
+
+        if (expectedRevision > 0 && preparation.CurrentRevision != expectedRevision)
+        {
+            throw new StorageConflictException(StorageConflictKind.Concurrency, "Record revision does not match prepared snapshot.");
+        }
+
+        if (expectedUpdatedAt is not null && preparation.CurrentUpdatedAt != expectedUpdatedAt.Value.ToUniversalTime())
+        {
+            throw new StorageConflictException(StorageConflictKind.Concurrency, "Record updated_at does not match prepared snapshot.");
         }
     }
 
