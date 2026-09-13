@@ -17,6 +17,7 @@ public sealed class SqliteStore
     public const int CurrentSchemaVersion = 1;
 
     private const string SchemaVersionKey = "schema_version";
+    private const string OrdinalCollation = "SCRAP_ORDINAL";
     private readonly string connectionString;
     private readonly int busyTimeoutMilliseconds;
     private readonly object initializationGate = new();
@@ -129,7 +130,7 @@ public sealed class SqliteStore
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, name, created_at, updated_at FROM scopes ORDER BY name COLLATE BINARY;";
+        command.CommandText = "SELECT id, name, created_at, updated_at FROM scopes ORDER BY name COLLATE SCRAP_ORDINAL;";
         using var reader = command.ExecuteReader();
         var scopes = new List<StoredScope>();
         while (reader.Read())
@@ -267,7 +268,7 @@ public sealed class SqliteStore
             SELECT id, key, presentation, revision, created_at, updated_at
             FROM records
             WHERE scope_id = $scopeId
-            ORDER BY key COLLATE BINARY
+            ORDER BY key COLLATE SCRAP_ORDINAL
             LIMIT $limit OFFSET $offset;
             """;
         command.Parameters.AddWithValue("$scopeId", scope.Id);
@@ -308,8 +309,8 @@ public sealed class SqliteStore
             SELECT id, key, presentation, revision, created_at, updated_at
             FROM records
             WHERE scope_id = $scopeId
-              AND ($afterKey IS NULL OR key COLLATE BINARY > $afterKey COLLATE BINARY)
-            ORDER BY key COLLATE BINARY
+              AND ($afterKey IS NULL OR key COLLATE SCRAP_ORDINAL > $afterKey COLLATE SCRAP_ORDINAL)
+            ORDER BY key COLLATE SCRAP_ORDINAL
             LIMIT $limit;
             """;
         command.Parameters.AddWithValue("$scopeId", scope.Id);
@@ -558,6 +559,7 @@ public sealed class SqliteStore
         try
         {
             connection.Open();
+            connection.CreateCollation(OrdinalCollation, static (left, right) => string.CompareOrdinal(left, right));
             using var command = connection.CreateCommand();
             command.CommandText = $"PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL; PRAGMA busy_timeout = {busyTimeoutMilliseconds};";
             command.ExecuteNonQuery();
@@ -784,7 +786,7 @@ public sealed class SqliteStore
             SELECT id, key, value_ciphertext, nonce, crypto_version, presentation, revision, created_at, updated_at
             FROM records
             WHERE scope_id = $scopeId
-            ORDER BY key COLLATE BINARY;
+            ORDER BY key COLLATE SCRAP_ORDINAL;
             """;
         command.Parameters.AddWithValue("$scopeId", scopeId);
         using var reader = command.ExecuteReader();

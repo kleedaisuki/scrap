@@ -13,6 +13,7 @@ public sealed class SqliteStoreTests
     private static readonly string[] OrderedScopes = [" alpha ", "Alpha", "alpha"];
     private static readonly string[] RenamedKeys = ["a", "b"];
     private static readonly string[] FirstKeysetPage = ["A", "a"];
+    private static readonly string[] OrdinalEdgeCaseOrder = ["\U00010000", "\uE000", "\uFFFF"];
 
     [Fact]
     public void InitializeCreatesVersionOneSchemaAndRequiredPragmas()
@@ -117,7 +118,7 @@ public sealed class SqliteStoreTests
     }
 
     [Fact]
-    public void MetadataKeysetPaginationUsesBinaryOrdering()
+    public void MetadataKeysetPaginationUsesOrdinalOrdering()
     {
         using var database = TestDatabase.Create();
         database.Store.CreateScope("dev");
@@ -129,6 +130,34 @@ public sealed class SqliteStoreTests
         var secondPage = database.Store.ListRecordMetadata("dev", afterKey: firstPage[^1].Identity.Key, limit: 2);
         Assert.Equal(FirstKeysetPage, firstPage.Select(record => record.Identity.Key));
         Assert.Equal("b", Assert.Single(secondPage).Identity.Key);
+    }
+
+    [Fact]
+    public void MetadataKeysetPaginationDoesNotBreakBetweenSupplementaryAndBmpKeys()
+    {
+        using var database = TestDatabase.Create();
+        database.Store.CreateScope("unicode");
+        foreach (var key in OrdinalEdgeCaseOrder.Reverse())
+        {
+            database.Store.SetRecord("unicode", key, 0, _ => Protected(key));
+        }
+
+        var observed = new List<string>();
+        string? afterKey = null;
+        while (true)
+        {
+            var page = database.Store.ListRecordMetadata("unicode", afterKey, limit: 1);
+            if (page.Count == 0)
+            {
+                break;
+            }
+
+            afterKey = page[0].Identity.Key;
+            observed.Add(afterKey);
+        }
+
+        Assert.Equal(OrdinalEdgeCaseOrder, observed);
+        Assert.Equal(OrdinalEdgeCaseOrder, database.Store.ListRecords("unicode").Select(record => record.Identity.Key));
     }
 
     [Fact]
