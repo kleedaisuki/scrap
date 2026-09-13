@@ -322,7 +322,7 @@ public sealed class DaemonRequestDispatcherTests
         ProtocolMethods.ScopeList => ProtocolRequest.Create(RequestId, method, new ScopeListParams()),
         ProtocolMethods.ScopeCreate => ProtocolRequest.Create(RequestId, method, new ScopeCreateParams("工作区")),
         ProtocolMethods.ScopeRename => ProtocolRequest.Create(RequestId, method, new ScopeRenameParams("旧工作区", "新工作区")),
-        ProtocolMethods.ScopeDelete => ProtocolRequest.Create(RequestId, method, new ScopeDeleteParams("工作区", true)),
+        ProtocolMethods.ScopeDelete => ProtocolRequest.Create(RequestId, method, new ScopeDeleteParams("工作区", true, 2)),
         ProtocolMethods.RecordGet => ProtocolRequest.Create(RequestId, method, new RecordGetParams("工作区", "令牌")),
         ProtocolMethods.RecordSet => CreateRecordSetRequest("秘密值🔐"),
         ProtocolMethods.RecordRename => ProtocolRequest.Create(RequestId, method, new RecordRenameParams("工作区", "旧令牌", "新令牌", 4)),
@@ -359,7 +359,7 @@ public sealed class DaemonRequestDispatcherTests
                 break;
             case ProtocolMethods.ScopeDelete:
                 var scopeDelete = Assert.IsType<ScopeDeleteParams>(parameters);
-                Assert.Equal(("工作区", true), (scopeDelete.Name, scopeDelete.Recursive));
+                Assert.Equal(("工作区", true, 2), (scopeDelete.Name, scopeDelete.Recursive, scopeDelete.ExpectedRecordCount));
                 break;
             case ProtocolMethods.RecordGet:
                 var recordGet = Assert.IsType<RecordGetParams>(parameters);

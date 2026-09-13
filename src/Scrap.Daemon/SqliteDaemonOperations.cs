@@ -129,7 +129,10 @@ internal sealed class SqliteDaemonOperations : IDaemonOperations, IDisposable
     {
         EnsureReady(cancellationToken);
         _ = ScopeName.Create(parameters.Name);
-        long deleted = store.DeleteScope(parameters.Name, parameters.Recursive);
+        long deleted = store.DeleteScope(
+            parameters.Name,
+            parameters.Recursive,
+            parameters.ExpectedRecordCount);
         return Task.FromResult(new ScopeDeleteResult(checked((int)deleted)));
     }
 

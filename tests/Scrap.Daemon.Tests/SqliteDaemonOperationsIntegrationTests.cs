@@ -240,7 +240,16 @@ public sealed class SqliteDaemonOperationsIntegrationTests
             () => context.Operations.DeleteScopeAsync(new("cleanup"), default));
         Assert.Equal(2, (await context.Operations.ListRecordsAsync(new("cleanup"), default)).Records.Count);
 
-        ScopeDeleteResult deleted = await context.Operations.DeleteScopeAsync(new("cleanup", Recursive: true), default);
+        StorageConflictException conflict = await Assert.ThrowsAsync<StorageConflictException>(
+            () => context.Operations.DeleteScopeAsync(
+                new("cleanup", Recursive: true, ExpectedRecordCount: 1),
+                default));
+        Assert.Equal(StorageConflictKind.Concurrency, conflict.Kind);
+        Assert.NotNull(context.Store.GetScope("cleanup"));
+
+        ScopeDeleteResult deleted = await context.Operations.DeleteScopeAsync(
+            new("cleanup", Recursive: true, ExpectedRecordCount: 2),
+            default);
 
         Assert.Equal(2, deleted.DeletedRecordCount);
         Assert.DoesNotContain(
