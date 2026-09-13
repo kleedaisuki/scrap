@@ -15,6 +15,7 @@ public static class CliApplication
 {
     private const string NoColor = "--no-color";
     private const string Json = "--json";
+    private const int MaximumValueUtf8Bytes = 64 * 1024;
     private static readonly string[] SearchModeOptions = ["--exact", "--fuzzy", "--regex"];
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
 
@@ -55,6 +56,11 @@ public static class CliApplication
             await WriteErrorAsync(environment, "Standard input is not valid UTF-8.").ConfigureAwait(false);
             return ExitCodes.Validation;
         }
+        catch (CliValidationException exception)
+        {
+            await WriteErrorAsync(environment, exception.Message).ConfigureAwait(false);
+            return ExitCodes.Validation;
+        }
         catch (OperationCanceledException)
         {
             await WriteErrorAsync(environment, "Operation cancelled.").ConfigureAwait(false);
@@ -74,6 +80,7 @@ public static class CliApplication
         ICliEnvironment environment,
         CancellationToken cancellationToken)
     {
+        Utf8Text.ValidateArguments(args);
         args = RemoveGlobalNoColor(args);
         if (args.Length == 0 || args is ["--help"] or ["-h"])
         {
@@ -300,23 +307,30 @@ public static class CliApplication
         if (!environment.IsInputRedirected)
         {
             await environment.ErrorWriter.WriteAsync("Value: ").ConfigureAwait(false);
-            var secret = await environment.ReadSecretAsync(cancellationToken).ConfigureAwait(false);
+            var secret = await environment.ReadSecretAsync(MaximumValueUtf8Bytes, cancellationToken).ConfigureAwait(false);
             await environment.ErrorWriter.WriteAsync("\n").ConfigureAwait(false);
+            Utf8Text.Validate(secret, MaximumValueUtf8Bytes);
             return secret;
         }
 
-        var value = await environment.Input.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+        var inputLimit = raw ? MaximumValueUtf8Bytes : MaximumValueUtf8Bytes + 2;
+        var input = await Utf8Text.ReadBoundedAsync(
+            environment.Input,
+            inputLimit,
+            cancellationToken).ConfigureAwait(false);
         if (raw)
         {
-            return value;
+            return input.Value;
         }
 
-        if (value.EndsWith("\r\n", StringComparison.Ordinal))
+        if (input.Value.EndsWith("\r\n", StringComparison.Ordinal))
         {
-            return value[..^2];
+            return input.Value[..^2];
         }
 
-        return value.EndsWith('\n') ? value[..^1] : value;
+        var value = input.Value.EndsWith('\n') ? input.Value[..^1] : input.Value;
+        Utf8Text.Validate(value, MaximumValueUtf8Bytes);
+        return value;
     }
 
     private static async Task WriteScopesAsync(TextWriter output, IReadOnlyList<ScopeItem> scopes, bool json)

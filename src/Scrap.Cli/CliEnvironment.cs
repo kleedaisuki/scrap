@@ -19,8 +19,8 @@ public interface ICliEnvironment
     bool IsInputRedirected { get; }
     /// <summary>指示标准输出是否重定向。/ Indicates whether standard output is redirected.</summary>
     bool IsOutputRedirected { get; }
-    /// <summary>从 TTY 无回显读取 secret。/ Reads a secret from a TTY without echo.</summary>
-    Task<string> ReadSecretAsync(CancellationToken cancellationToken);
+    /// <summary>从 TTY 无回显且有界地读取 secret。/ Reads a bounded secret from a TTY without echo.</summary>
+    Task<string> ReadSecretAsync(int maximumUtf8Bytes, CancellationToken cancellationToken);
     /// <summary>显式写入平台剪贴板。/ Explicitly writes to the platform clipboard.</summary>
     Task SetClipboardTextAsync(string value, CancellationToken cancellationToken);
 }
@@ -46,10 +46,13 @@ internal sealed class SystemCliEnvironment : ICliEnvironment
     public bool IsInputRedirected => Console.IsInputRedirected;
     public bool IsOutputRedirected => Console.IsOutputRedirected;
 
-    public Task<string> ReadSecretAsync(CancellationToken cancellationToken)
+    public Task<string> ReadSecretAsync(int maximumUtf8Bytes, CancellationToken cancellationToken)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(maximumUtf8Bytes);
         cancellationToken.ThrowIfCancellationRequested();
         var value = new StringBuilder();
+        var utf8Bytes = 0;
+        var pendingHighSurrogate = false;
 
         while (true)
         {
@@ -57,26 +60,109 @@ internal sealed class SystemCliEnvironment : ICliEnvironment
             var key = Console.ReadKey(intercept: true);
             if (key.Key is ConsoleKey.Enter)
             {
+                if (pendingHighSurrogate)
+                {
+                    throw new CliValidationException("Value must contain valid Unicode text.");
+                }
+
                 return Task.FromResult(value.ToString());
             }
 
             if (key.Key is ConsoleKey.Backspace)
             {
-                if (value.Length > 0)
-                {
-                    value.Length--;
-                }
+                RemoveLastRune(value, ref utf8Bytes, ref pendingHighSurrogate);
 
                 continue;
             }
 
             if (!char.IsControl(key.KeyChar))
             {
-                value.Append(key.KeyChar);
+                AppendKeyChar(value, key.KeyChar, maximumUtf8Bytes, ref utf8Bytes, ref pendingHighSurrogate);
             }
         }
     }
 
     public Task SetClipboardTextAsync(string value, CancellationToken cancellationToken) =>
         ClipboardService.SetTextAsync(value, cancellationToken);
+
+    private static void AppendKeyChar(
+        StringBuilder value,
+        char character,
+        int maximumUtf8Bytes,
+        ref int utf8Bytes,
+        ref bool pendingHighSurrogate)
+    {
+        if (char.IsHighSurrogate(character))
+        {
+            if (pendingHighSurrogate)
+            {
+                throw new CliValidationException("Value must contain valid Unicode text.");
+            }
+
+            value.Append(character);
+            pendingHighSurrogate = true;
+            return;
+        }
+
+        if (char.IsLowSurrogate(character))
+        {
+            if (!pendingHighSurrogate)
+            {
+                throw new CliValidationException("Value must contain valid Unicode text.");
+            }
+
+            EnsureFits(utf8Bytes, 4, maximumUtf8Bytes);
+            value.Append(character);
+            utf8Bytes += 4;
+            pendingHighSurrogate = false;
+            return;
+        }
+
+        if (pendingHighSurrogate)
+        {
+            throw new CliValidationException("Value must contain valid Unicode text.");
+        }
+
+        var characterBytes = Utf8Text.GetBmpByteCount(character);
+        EnsureFits(utf8Bytes, characterBytes, maximumUtf8Bytes);
+        value.Append(character);
+        utf8Bytes += characterBytes;
+    }
+
+    private static void RemoveLastRune(
+        StringBuilder value,
+        ref int utf8Bytes,
+        ref bool pendingHighSurrogate)
+    {
+        if (value.Length == 0)
+        {
+            return;
+        }
+
+        var last = value[^1];
+        if (pendingHighSurrogate)
+        {
+            value.Length--;
+            pendingHighSurrogate = false;
+            return;
+        }
+
+        if (char.IsLowSurrogate(last) && value.Length >= 2 && char.IsHighSurrogate(value[^2]))
+        {
+            value.Length -= 2;
+            utf8Bytes -= 4;
+            return;
+        }
+
+        value.Length--;
+        utf8Bytes -= Utf8Text.GetBmpByteCount(last);
+    }
+
+    private static void EnsureFits(int currentBytes, int additionalBytes, int maximumUtf8Bytes)
+    {
+        if (currentBytes > maximumUtf8Bytes - additionalBytes)
+        {
+            throw Utf8Text.ValueTooLong();
+        }
+    }
 }

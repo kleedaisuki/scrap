@@ -76,3 +76,12 @@ internal sealed class CliUsageException : Exception
     {
     }
 }
+
+/// <summary>本地输入校验错误。/ A local input-validation error.</summary>
+internal sealed class CliValidationException : Exception
+{
+    public CliValidationException(string message)
+        : base(message)
+    {
+    }
+}
