@@ -68,12 +68,44 @@ public sealed class SqliteDaemonOperationsIntegrationTests
         await context.Operations.SetRecordAsync(new("Vault", "token", "lower key"), default);
         await context.Operations.SetRecordAsync(new("vault", "Token", "lower scope"), default);
 
-        ScopeListResult scopes = await context.Operations.ListScopesAsync(default);
+        ScopeListResult scopes = await context.Operations.ListScopesAsync(new(), default);
 
         Assert.Equal(CaseSensitiveScopeOrder, scopes.Scopes.Select(item => item.Name));
         Assert.Equal("upper key", (await context.Operations.GetRecordAsync(new("Vault", "Token"), default)).Record.Value);
         Assert.Equal("lower key", (await context.Operations.GetRecordAsync(new("Vault", "token"), default)).Record.Value);
         Assert.Equal("lower scope", (await context.Operations.GetRecordAsync(new("vault", "Token"), default)).Record.Value);
+    }
+
+    /// <summary>
+    /// 超过默认页大小的 Unicode scopes 使用 .NET ordinal cursor 无重复分页。
+    /// / More than one default page of Unicode scopes is paged without duplicates using a .NET ordinal cursor.
+    /// </summary>
+    [Fact]
+    public async Task ScopeListUsesOrdinalUnicodeKeysetPaginationAsync()
+    {
+        using var context = await OperationsContext.CreateAsync();
+        string[] names = Enumerable.Range(0, 105)
+            .Select(index => $"scope-{index:D3}")
+            .Append("scope-\U00010000")
+            .Append("scope-\uE000")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        foreach (string name in names)
+        {
+            await context.Operations.CreateScopeAsync(new(name), default);
+        }
+
+        ScopeListResult first = await context.Operations.ListScopesAsync(new(), default);
+        ScopeListResult second = await context.Operations.ListScopesAsync(
+            new(first.NextCursor),
+            default);
+        string[] actual = first.Scopes.Concat(second.Scopes).Select(scope => scope.Name).ToArray();
+
+        Assert.Equal(100, first.Scopes.Count);
+        Assert.Equal("scope-099", first.NextCursor);
+        Assert.Null(second.NextCursor);
+        Assert.Equal(names, actual);
+        Assert.Equal(actual.Length, actual.Distinct(StringComparer.Ordinal).Count());
     }
 
     /// <summary>
@@ -253,7 +285,7 @@ public sealed class SqliteDaemonOperationsIntegrationTests
 
         Assert.Equal(2, deleted.DeletedRecordCount);
         Assert.DoesNotContain(
-            (await context.Operations.ListScopesAsync(default)).Scopes,
+            (await context.Operations.ListScopesAsync(new(), default)).Scopes,
             scope => string.Equals(scope.Name, "cleanup", StringComparison.Ordinal));
         Assert.Null(context.Store.GetScope("cleanup"));
     }

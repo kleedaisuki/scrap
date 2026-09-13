@@ -13,7 +13,7 @@ internal interface IDaemonOperations
     Task InitializeAsync(CancellationToken cancellationToken);
 
     /// <summary>列出 scopes。 / Lists scopes.</summary>
-    Task<ScopeListResult> ListScopesAsync(CancellationToken cancellationToken);
+    Task<ScopeListResult> ListScopesAsync(ScopeListParams parameters, CancellationToken cancellationToken);
 
     /// <summary>创建 scope。 / Creates a scope.</summary>
     Task<ScopeCreateResult> CreateScopeAsync(ScopeCreateParams parameters, CancellationToken cancellationToken);

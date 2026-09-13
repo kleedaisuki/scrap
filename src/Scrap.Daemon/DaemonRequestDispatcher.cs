@@ -170,9 +170,9 @@ internal sealed class DaemonRequestDispatcher
                 applicationVersion,
                 ProtocolConstants.CurrentVersion,
                 ProtocolConstants.CurrentVersion))),
-        ProtocolMethods.ScopeList => BoxAsync(ValidateAndRun<ScopeListParams, ScopeListResult>(
-            request,
-            () => operations.ListScopesAsync(cancellationToken))),
+        ProtocolMethods.ScopeList => BoxAsync(operations.ListScopesAsync(
+            Deserialize<ScopeListParams>(request),
+            cancellationToken)),
         ProtocolMethods.ScopeCreate => BoxAsync(operations.CreateScopeAsync(Deserialize<ScopeCreateParams>(request), cancellationToken)),
         ProtocolMethods.ScopeRename => BoxAsync(operations.RenameScopeAsync(Deserialize<ScopeRenameParams>(request), cancellationToken)),
         ProtocolMethods.ScopeDelete => BoxAsync(operations.DeleteScopeAsync(Deserialize<ScopeDeleteParams>(request), cancellationToken)),

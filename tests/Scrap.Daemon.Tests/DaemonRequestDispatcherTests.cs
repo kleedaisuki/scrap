@@ -349,7 +349,7 @@ public sealed class DaemonRequestDispatcherTests
 
     private static ProtocolRequest CreateRequest(string method) => method switch
     {
-        ProtocolMethods.ScopeList => ProtocolRequest.Create(RequestId, method, new ScopeListParams()),
+        ProtocolMethods.ScopeList => ProtocolRequest.Create(RequestId, method, new ScopeListParams("游标🧭", 17)),
         ProtocolMethods.ScopeCreate => ProtocolRequest.Create(RequestId, method, new ScopeCreateParams("工作区")),
         ProtocolMethods.ScopeRename => ProtocolRequest.Create(RequestId, method, new ScopeRenameParams("旧工作区", "新工作区")),
         ProtocolMethods.ScopeDelete => ProtocolRequest.Create(RequestId, method, new ScopeDeleteParams("工作区", true, 2)),
@@ -378,7 +378,8 @@ public sealed class DaemonRequestDispatcherTests
         switch (method)
         {
             case ProtocolMethods.ScopeList:
-                Assert.Null(parameters);
+                var scopeList = Assert.IsType<ScopeListParams>(parameters);
+                Assert.Equal(("游标🧭", 17), (scopeList.AfterName, scopeList.Limit));
                 break;
             case ProtocolMethods.ScopeCreate:
                 Assert.Equal("工作区", Assert.IsType<ScopeCreateParams>(parameters).Name);
@@ -514,8 +515,8 @@ public sealed class DaemonRequestDispatcherTests
         public Task InitializeAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
         /// <inheritdoc />
-        public Task<ScopeListResult> ListScopesAsync(CancellationToken cancellationToken) =>
-            InvokeAsync(ProtocolMethods.ScopeList, null, new ScopeListResult([new ScopeDto("工作区")]), cancellationToken);
+        public Task<ScopeListResult> ListScopesAsync(ScopeListParams parameters, CancellationToken cancellationToken) =>
+            InvokeAsync(ProtocolMethods.ScopeList, parameters, new ScopeListResult([new ScopeDto("工作区")]), cancellationToken);
 
         /// <inheritdoc />
         public Task<ScopeCreateResult> CreateScopeAsync(ScopeCreateParams parameters, CancellationToken cancellationToken) =>

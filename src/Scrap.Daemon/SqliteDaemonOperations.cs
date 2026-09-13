@@ -80,11 +80,19 @@ internal sealed class SqliteDaemonOperations : IDaemonOperations, IDisposable
     }
 
     /// <inheritdoc />
-    public Task<ScopeListResult> ListScopesAsync(CancellationToken cancellationToken)
+    public Task<ScopeListResult> ListScopesAsync(ScopeListParams parameters, CancellationToken cancellationToken)
     {
         EnsureReady(cancellationToken);
-        ScopeDto[] scopes = store.ListScopes().Select(ToScopeDto).ToArray();
-        return Task.FromResult(new ScopeListResult(scopes));
+        if (parameters.AfterName is not null)
+        {
+            _ = ScopeName.Create(parameters.AfterName);
+        }
+
+        StoredScope[] page = store.ListScopes(parameters.AfterName, parameters.Limit + 1).ToArray();
+        bool hasMore = page.Length > parameters.Limit;
+        StoredScope[] selected = hasMore ? page[..parameters.Limit] : page;
+        string? next = hasMore ? selected[^1].Name : null;
+        return Task.FromResult(new ScopeListResult(selected.Select(ToScopeDto).ToArray(), next));
     }
 
     /// <inheritdoc />

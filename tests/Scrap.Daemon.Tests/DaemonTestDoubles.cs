@@ -271,7 +271,7 @@ internal sealed class StubDaemonOperations : IDaemonOperations
     public Task InitializeAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     /// <inheritdoc />
-    public Task<ScopeListResult> ListScopesAsync(CancellationToken cancellationToken) =>
+    public Task<ScopeListResult> ListScopesAsync(ScopeListParams parameters, CancellationToken cancellationToken) =>
         Task.FromResult(new ScopeListResult([]));
 
     /// <inheritdoc />
