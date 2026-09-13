@@ -105,7 +105,8 @@ try {
     }
 
     $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-    Set-Content -LiteralPath "$archive.sha256" -Value "$hash  $([IO.Path]::GetFileName($archive))" -Encoding utf8NoBOM
+    $checksum = "$hash  $([IO.Path]::GetFileName($archive))`n"
+    [IO.File]::WriteAllText("$archive.sha256", $checksum, [Text.UTF8Encoding]::new($false))
     Write-Output $archive
 }
 finally {
