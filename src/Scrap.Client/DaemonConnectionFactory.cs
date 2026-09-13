@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO.Pipes;
 using Scrap.Platform.Ipc;
 using Scrap.Platform.Processes;
+using Scrap.Protocol;
 
 namespace Scrap.Client;
 
@@ -11,6 +12,9 @@ namespace Scrap.Client;
 /// </summary>
 internal sealed class DaemonConnectionFactory
 {
+    private static readonly TimeSpan InitialRelaunchDelay = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan MaximumRelaunchDelay = TimeSpan.FromSeconds(2);
+
     private readonly IpcEndpointDescriptor _endpoint;
     private readonly IDaemonProcessLauncher _launcher;
     private readonly ScrapClientOptions _options;
@@ -32,8 +36,8 @@ internal sealed class DaemonConnectionFactory
     }
 
     /// <summary>
-    /// 连接 daemon；只在首次快速探测失败后启动一次进程，之后等待 owner 就绪。
-    /// / Connects to the daemon; launches once only after the fast initial probe fails, then waits for the owner to become ready.
+    /// 连接 daemon；首次快速探测失败后启动进程，并在旧 owner 关闭竞争期间按退避节流重新启动。
+    /// / Connects to the daemon; launches after the fast initial probe fails and throttles relaunches during an old-owner shutdown race.
     /// </summary>
     /// <param name="readinessProbe">在返回前验证协议就绪状态的回调。 / Callback that verifies protocol readiness before returning.</param>
     /// <param name="cancellationToken">取消整个 bootstrap 的标记。 / Token that cancels the complete bootstrap.</param>
@@ -56,17 +60,11 @@ internal sealed class DaemonConnectionFactory
             lastFailure = exception;
         }
 
-        try
-        {
-            _launcher.Start();
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            throw new ScrapConnectionException("The local scrap daemon could not be started.", exception);
-        }
-
         long startedAt = Stopwatch.GetTimestamp();
         TimeSpan delay = _options.InitialRetryDelay;
+        TimeSpan relaunchDelay = InitialRelaunchDelay;
+        TimeSpan nextRelaunchAt = relaunchDelay;
+        StartDaemon();
 
         while (Stopwatch.GetElapsedTime(startedAt) < _options.StartupTimeout)
         {
@@ -89,6 +87,14 @@ internal sealed class DaemonConnectionFactory
                 break;
             }
 
+            TimeSpan elapsed = Stopwatch.GetElapsedTime(startedAt);
+            if (elapsed >= nextRelaunchAt)
+            {
+                StartDaemon();
+                relaunchDelay = Min(relaunchDelay * 2, MaximumRelaunchDelay);
+                nextRelaunchAt = elapsed + relaunchDelay;
+            }
+
             await Task.Delay(Min(delay, remaining), cancellationToken).ConfigureAwait(false);
             delay = Min(delay * 2, _options.MaxRetryDelay);
         }
@@ -99,7 +105,24 @@ internal sealed class DaemonConnectionFactory
     }
 
     private static bool IsRetryableConnectionFailure(Exception exception) =>
-        exception is IOException or TimeoutException;
+        exception is IOException or TimeoutException ||
+        exception is RemoteProtocolException { ErrorCode: ProtocolErrorCodes.DaemonShuttingDown };
+
+    /// <summary>
+    /// 启动候选 daemon；单实例 lease 负责把并发 loser 变为正常退出。
+    /// / Starts a daemon candidate; the single-instance lease turns concurrent losers into normal exits.
+    /// </summary>
+    private void StartDaemon()
+    {
+        try
+        {
+            _launcher.Start();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            throw new ScrapConnectionException("The local scrap daemon could not be started.", exception);
+        }
+    }
 
     private async ValueTask<NamedPipeClientStream> ConnectOnceAsync(
         Func<NamedPipeClientStream, CancellationToken, ValueTask> readinessProbe,
