@@ -36,6 +36,16 @@ internal sealed class ScrapFileLoggerProvider : ILoggerProvider
     /// <inheritdoc />
     public ILogger CreateLogger(string categoryName) => new FileLogger(this, categoryName);
 
+    /// <summary>
+    /// 记录某项 daemon 配置已回退默认值，不记录原始值。 / Records that a daemon setting fell back to its default without logging the raw value.
+    /// </summary>
+    /// <param name="propertyName">由 daemon 自身提供的固定属性名。 / Fixed property name supplied by the daemon itself.</param>
+    public void WriteConfigurationFallback(string propertyName) => Write(
+        LogLevel.Warning,
+        "Scrap.Daemon.Configuration",
+        new EventId(1501, "ConfigurationFallback"),
+        $"Daemon configuration '{propertyName}' is invalid; using the safe default.");
+
     /// <inheritdoc />
     public void Dispose()
     {

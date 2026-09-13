@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Globalization;
+using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -52,21 +54,19 @@ internal static class DaemonHost
         ArgumentNullException.ThrowIfNull(paths);
         ArgumentNullException.ThrowIfNull(masterKeyProvider);
         HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
-        builder.Configuration.AddJsonFile(paths.ConfigurationFile, optional: true, reloadOnChange: false);
 
         // A spawned daemon must never inherit Generic Host console logging and corrupt CLI data streams.
         builder.Logging.ClearProviders();
         // 工厂注册使 host 拥有并释放文件句柄；实例注册会泄露句柄。
         // Factory registration makes the host own and dispose the file handle; an instance registration would leak it.
-        builder.Services.AddSingleton<ILoggerProvider>(_ => new ScrapFileLoggerProvider(paths.LogFile));
+        var fileLogger = new ScrapFileLoggerProvider(paths.LogFile);
+        builder.Services.AddSingleton<ILoggerProvider>(_ => fileLogger);
         builder.Logging.AddFilter(static (category, level) =>
             level >= LogLevel.Information
             && category is not null
             && category.StartsWith("Scrap.Daemon", StringComparison.Ordinal));
 
-        var daemonOptions = new DaemonOptions();
-        builder.Configuration.GetSection("daemon").Bind(daemonOptions);
-        daemonOptions.Validate();
+        DaemonOptions daemonOptions = ReadOptions(builder.Configuration.GetSection("daemon"), paths, fileLogger);
 
         builder.Services.AddSingleton(paths);
         builder.Services.AddSingleton(IpcEndpointDescriptor.Create(paths));
@@ -94,11 +94,125 @@ internal static class DaemonHost
         builder.Services.AddHostedService<DaemonServerService>();
         builder.Services.AddHostedService<DaemonInitializationService>();
         builder.Services.AddHostedService<IdleShutdownService>();
-        return builder.Build();
+        try
+        {
+            return builder.Build();
+        }
+        catch
+        {
+            fileLogger.Dispose();
+            throw;
+        }
     }
 
     private static string GetApplicationVersion() =>
         typeof(DaemonHost).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
         ?? typeof(DaemonHost).Assembly.GetName().Version?.ToString()
         ?? "unknown";
+
+    private static DaemonOptions ReadOptions(
+        IConfigurationSection section,
+        ScrapPathLayout paths,
+        ScrapFileLoggerProvider logger)
+    {
+        var options = new DaemonOptions();
+        ApplyDuration(section["idleTimeout"], "idleTimeout", options.IdleTimeout, value => options.IdleTimeout = value, logger);
+        ApplyDuration(section["idlePollInterval"], "idlePollInterval", options.IdlePollInterval, value => options.IdlePollInterval = value, logger);
+        ApplyDuration(section["shutdownTimeout"], "shutdownTimeout", options.ShutdownTimeout, value => options.ShutdownTimeout = value, logger);
+        ApplyDuration(section["responseWriteTimeout"], "responseWriteTimeout", options.ResponseWriteTimeout, value => options.ResponseWriteTimeout = value, logger);
+        ApplyProfileConfiguration(paths.ConfigurationFile, options, logger);
+        return options.Validate();
+    }
+
+    private static void ApplyProfileConfiguration(
+        string configurationFile,
+        DaemonOptions options,
+        ScrapFileLoggerProvider logger)
+    {
+        if (!File.Exists(configurationFile))
+        {
+            return;
+        }
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(File.ReadAllBytes(configurationFile));
+            if (!TryGetProperty(document.RootElement, "daemon", out JsonElement daemon))
+            {
+                return;
+            }
+
+            if (daemon.ValueKind != JsonValueKind.Object)
+            {
+                logger.WriteConfigurationFallback("config.json");
+                return;
+            }
+
+            ApplyJsonDuration(daemon, "idleTimeout", options.IdleTimeout, value => options.IdleTimeout = value, logger);
+            ApplyJsonDuration(daemon, "idlePollInterval", options.IdlePollInterval, value => options.IdlePollInterval = value, logger);
+            ApplyJsonDuration(daemon, "shutdownTimeout", options.ShutdownTimeout, value => options.ShutdownTimeout = value, logger);
+            ApplyJsonDuration(daemon, "responseWriteTimeout", options.ResponseWriteTimeout, value => options.ResponseWriteTimeout = value, logger);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            logger.WriteConfigurationFallback("config.json");
+        }
+    }
+
+    private static void ApplyJsonDuration(
+        JsonElement section,
+        string propertyName,
+        TimeSpan fallback,
+        Action<TimeSpan> assign,
+        ScrapFileLoggerProvider logger)
+    {
+        if (!TryGetProperty(section, propertyName, out JsonElement element))
+        {
+            return;
+        }
+
+        string? raw = element.ValueKind == JsonValueKind.String ? element.GetString() : null;
+        ApplyDuration(raw, propertyName, fallback, assign, logger, isSpecified: true);
+    }
+
+    private static void ApplyDuration(
+        string? raw,
+        string propertyName,
+        TimeSpan fallback,
+        Action<TimeSpan> assign,
+        ScrapFileLoggerProvider logger,
+        bool isSpecified = false)
+    {
+        if (raw is not null
+            && TimeSpan.TryParse(raw, CultureInfo.InvariantCulture, out TimeSpan parsed)
+            && parsed > TimeSpan.Zero)
+        {
+            assign(parsed);
+            return;
+        }
+
+        if (raw is not null || isSpecified)
+        {
+            assign(fallback);
+            logger.WriteConfigurationFallback(propertyName);
+        }
+    }
+
+    private static bool TryGetProperty(JsonElement element, string name, out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (JsonProperty property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = default;
+        return false;
+    }
 }
