@@ -1,3 +1,5 @@
+using Scrap.Protocol;
+
 namespace Scrap.Client;
 
 /// <summary>
@@ -31,6 +33,18 @@ public sealed class ScrapConnectionException : Exception
 public sealed class ScrapProtocolVersionException : Exception
 {
     /// <summary>
+    /// 为只返回版本拒绝错误、未返回支持范围的 daemon 创建异常。
+    /// / Creates an exception for a daemon that rejects the version without returning its supported range.
+    /// </summary>
+    /// <param name="clientVersion">client 使用的协议版本。 / The protocol version used by the client.</param>
+    /// <param name="innerException">daemon 的结构化版本拒绝。 / The daemon's structured version rejection.</param>
+    internal ScrapProtocolVersionException(int clientVersion, ProtocolException innerException)
+        : base($"Protocol version {clientVersion} was rejected by the daemon.", innerException)
+    {
+        ClientVersion = clientVersion;
+    }
+
+    /// <summary>
     /// 初始化协议版本不兼容异常。 / Initializes a protocol-version incompatibility exception.
     /// </summary>
     /// <param name="clientVersion">client 使用的协议版本。 / The protocol version used by the client.</param>
@@ -42,14 +56,18 @@ public sealed class ScrapProtocolVersionException : Exception
         ClientVersion = clientVersion;
         MinimumDaemonVersion = minimumDaemonVersion;
         MaximumDaemonVersion = maximumDaemonVersion;
+        HasDaemonVersionRange = true;
     }
 
     /// <summary>获取 client 协议版本。 / Gets the client protocol version.</summary>
     public int ClientVersion { get; }
 
-    /// <summary>获取 daemon 支持的最低版本。 / Gets the minimum protocol version supported by the daemon.</summary>
+    /// <summary>获取 daemon 支持的最低版本；范围未知时为 0。 / Gets the minimum daemon protocol version, or zero when the range is unknown.</summary>
     public int MinimumDaemonVersion { get; }
 
-    /// <summary>获取 daemon 支持的最高版本。 / Gets the maximum protocol version supported by the daemon.</summary>
+    /// <summary>获取 daemon 支持的最高版本；范围未知时为 0。 / Gets the maximum daemon protocol version, or zero when the range is unknown.</summary>
     public int MaximumDaemonVersion { get; }
+
+    /// <summary>获取 daemon 是否成功返回了版本范围。 / Gets whether the daemon successfully returned its version range.</summary>
+    public bool HasDaemonVersionRange { get; }
 }

@@ -35,14 +35,21 @@ internal sealed class DaemonConnectionFactory
     /// 连接 daemon；只在首次快速探测失败后启动一次进程，之后等待 owner 就绪。
     /// / Connects to the daemon; launches once only after the fast initial probe fails, then waits for the owner to become ready.
     /// </summary>
+    /// <param name="readinessProbe">在返回前验证协议就绪状态的回调。 / Callback that verifies protocol readiness before returning.</param>
     /// <param name="cancellationToken">取消整个 bootstrap 的标记。 / Token that cancels the complete bootstrap.</param>
     /// <returns>已连接且由调用方拥有的 pipe。 / A connected pipe owned by the caller.</returns>
-    public async ValueTask<NamedPipeClientStream> ConnectAsync(CancellationToken cancellationToken)
+    public async ValueTask<NamedPipeClientStream> ConnectAsync(
+        Func<NamedPipeClientStream, CancellationToken, ValueTask> readinessProbe,
+        CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(readinessProbe);
         Exception? lastFailure;
         try
         {
-            return await ConnectOnceAsync(_options.InitialConnectTimeout, cancellationToken).ConfigureAwait(false);
+            return await ConnectOnceAsync(
+                readinessProbe,
+                _options.InitialConnectTimeout,
+                cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (IsRetryableConnectionFailure(exception))
         {
@@ -69,7 +76,7 @@ internal sealed class DaemonConnectionFactory
 
             try
             {
-                return await ConnectOnceAsync(attemptTimeout, cancellationToken).ConfigureAwait(false);
+                return await ConnectOnceAsync(readinessProbe, attemptTimeout, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception exception) when (IsRetryableConnectionFailure(exception))
             {
@@ -95,14 +102,23 @@ internal sealed class DaemonConnectionFactory
         exception is IOException or TimeoutException;
 
     private async ValueTask<NamedPipeClientStream> ConnectOnceAsync(
+        Func<NamedPipeClientStream, CancellationToken, ValueTask> readinessProbe,
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
+        using var attemptCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        attemptCancellation.CancelAfter(timeout);
         NamedPipeClientStream stream = _endpoint.CreateClientStream();
         try
         {
-            await stream.ConnectAsync(timeout, cancellationToken).ConfigureAwait(false);
+            await stream.ConnectAsync(timeout, attemptCancellation.Token).ConfigureAwait(false);
+            await readinessProbe(stream, attemptCancellation.Token).ConfigureAwait(false);
             return stream;
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            await stream.DisposeAsync().ConfigureAwait(false);
+            throw new TimeoutException("The daemon readiness probe timed out.", exception);
         }
         catch
         {

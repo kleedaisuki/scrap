@@ -28,6 +28,7 @@ public sealed class ScrapClient : IAsyncDisposable
     private readonly DaemonConnectionFactory _connectionFactory;
     private readonly ScrapClientOptions _options;
     private readonly SemaphoreSlim _requestGate = new(1, 1);
+    private readonly CancellationTokenSource _lifetimeCancellation = new();
     private NamedPipeClientStream? _stream;
     private int _disposed;
 
@@ -93,17 +94,10 @@ public sealed class ScrapClient : IAsyncDisposable
         endpoint.Paths.Initialize();
 
         var connectionFactory = new DaemonConnectionFactory(endpoint, launcher, validatedOptions);
-        NamedPipeClientStream stream = await connectionFactory.ConnectAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await NegotiateVersionAsync(stream, validatedOptions.MaxFrameSize, cancellationToken).ConfigureAwait(false);
-            return new ScrapClient(connectionFactory, validatedOptions, stream);
-        }
-        catch
-        {
-            await stream.DisposeAsync().ConfigureAwait(false);
-            throw;
-        }
+        NamedPipeClientStream stream = await connectionFactory.ConnectAsync(
+            (candidate, token) => NegotiateVersionAsync(candidate, validatedOptions.MaxFrameSize, token),
+            cancellationToken).ConfigureAwait(false);
+        return new ScrapClient(connectionFactory, validatedOptions, stream);
     }
 
     /// <summary>列出所有 scope。 / Lists all scopes.</summary>
@@ -322,6 +316,7 @@ public sealed class ScrapClient : IAsyncDisposable
             return;
         }
 
+        await _lifetimeCancellation.CancelAsync().ConfigureAwait(false);
         await _requestGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
         {
@@ -330,6 +325,7 @@ public sealed class ScrapClient : IAsyncDisposable
         finally
         {
             _requestGate.Release();
+            _lifetimeCancellation.Dispose();
         }
     }
 
@@ -344,21 +340,32 @@ public sealed class ScrapClient : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-            _stream ??= await OpenNegotiatedConnectionAsync(cancellationToken).ConfigureAwait(false);
+            using var requestCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                _lifetimeCancellation.Token);
+            CancellationToken requestToken = requestCancellation.Token;
 
             try
             {
+                _stream ??= await OpenNegotiatedConnectionAsync(requestToken).ConfigureAwait(false);
                 return await ExchangeAsync<TParams, TResult>(
                     _stream,
                     method,
                     parameters,
                     _options.MaxFrameSize,
-                    cancellationToken).ConfigureAwait(false);
+                    requestToken).ConfigureAwait(false);
             }
             catch (RemoteProtocolException)
             {
                 // A structured remote error is a complete, aligned response; the pipe remains reusable.
                 throw;
+            }
+            catch (OperationCanceledException) when (
+                _lifetimeCancellation.IsCancellationRequested &&
+                !cancellationToken.IsCancellationRequested)
+            {
+                await DropConnectionAsync().ConfigureAwait(false);
+                throw new ObjectDisposedException(nameof(ScrapClient));
             }
             catch (OperationCanceledException)
             {
@@ -385,31 +392,30 @@ public sealed class ScrapClient : IAsyncDisposable
     }
 
     private async ValueTask<NamedPipeClientStream> OpenNegotiatedConnectionAsync(CancellationToken cancellationToken)
-    {
-        NamedPipeClientStream stream = await _connectionFactory.ConnectAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await NegotiateVersionAsync(stream, _options.MaxFrameSize, cancellationToken).ConfigureAwait(false);
-            return stream;
-        }
-        catch
-        {
-            await stream.DisposeAsync().ConfigureAwait(false);
-            throw;
-        }
-    }
+        => await _connectionFactory.ConnectAsync(
+            (candidate, token) => NegotiateVersionAsync(candidate, _options.MaxFrameSize, token),
+            cancellationToken).ConfigureAwait(false);
 
     private static async ValueTask NegotiateVersionAsync(
         NamedPipeClientStream stream,
         int maxFrameSize,
         CancellationToken cancellationToken)
     {
-        DaemonVersionResult version = await ExchangeAsync<DaemonVersionParams, DaemonVersionResult>(
-            stream,
-            ProtocolMethods.DaemonVersion,
-            new(),
-            maxFrameSize,
-            cancellationToken).ConfigureAwait(false);
+        DaemonVersionResult version;
+        try
+        {
+            version = await ExchangeAsync<DaemonVersionParams, DaemonVersionResult>(
+                stream,
+                ProtocolMethods.DaemonVersion,
+                new(),
+                maxFrameSize,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (ProtocolException exception) when (
+            exception.ErrorCode == ProtocolErrorCodes.ProtocolVersionUnsupported)
+        {
+            throw new ScrapProtocolVersionException(ProtocolConstants.CurrentVersion, exception);
+        }
 
         if (version.MinProtocolVersion <= 0 || version.MaxProtocolVersion < version.MinProtocolVersion)
         {
