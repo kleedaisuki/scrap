@@ -13,6 +13,7 @@
 | `Scrap.Daemon` | IPC、领域事务与数据的唯一 owner |
 | `Scrap.Domain` | 领域模型与搜索语义 |
 | `Scrap.Protocol` | 版本化 IPC envelope 与 framing |
+| `Scrap.Client` | CLI/GUI 共享的连接、版本协商与 daemon 按需启动 |
 | `Scrap.Storage.Sqlite` | SQLite 持久化 |
 | `Scrap.Crypto` / `Scrap.Platform` | 记录加密与平台密钥保护 |
 
@@ -21,7 +22,7 @@
 需要 `global.json` 指定的 .NET 10 SDK：
 
 ```bash
-dotnet restore Scrap.slnx
+dotnet restore Scrap.slnx --locked-mode
 dotnet build Scrap.slnx -c Release --no-restore
 dotnet test Scrap.slnx -c Release --no-build
 ```
