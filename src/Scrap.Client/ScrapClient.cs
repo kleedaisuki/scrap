@@ -78,7 +78,7 @@ public sealed class ScrapClient : IAsyncDisposable
     /// / Connects through an explicit endpoint and launcher, supporting custom profiles and integration tests.
     /// </summary>
     /// <param name="endpoint">共享给 client 与 daemon 的 endpoint。 / Endpoint shared by client and daemon.</param>
-    /// <param name="launcher">首次连接失败时调用一次的 launcher。 / Launcher invoked once after the initial connection fails.</param>
+    /// <param name="launcher">首次连接失败及旧 owner 关闭竞争时按退避调用的 launcher。 / Launcher invoked with backoff after initial failure and during an old-owner shutdown race.</param>
     /// <param name="options">可选连接与启动策略。 / Optional connection and startup policy.</param>
     /// <param name="cancellationToken">取消 bootstrap 的标记。 / Token that cancels bootstrapping.</param>
     /// <returns>已连接并完成版本协商的 client。 / A connected client with version negotiation completed.</returns>

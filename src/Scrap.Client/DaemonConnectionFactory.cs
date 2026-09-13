@@ -7,8 +7,8 @@ using Scrap.Protocol;
 namespace Scrap.Client;
 
 /// <summary>
-/// 建立当前用户的 daemon pipe，并在首次连接失败后执行一次按需启动。
-/// / Opens the current user's daemon pipe and performs one on-demand launch after the initial connection fails.
+/// 建立当前用户的 daemon pipe，并在首次连接失败后按需启动，必要时节流重启。
+/// / Opens the current user's daemon pipe, launching on demand and throttling relaunches when necessary.
 /// </summary>
 internal sealed class DaemonConnectionFactory
 {
