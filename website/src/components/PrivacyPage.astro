@@ -1,0 +1,58 @@
+---
+import type { Locale, SiteCopy } from "../lib/content";
+import type { PrivacyCopy } from "../lib/privacy";
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+interface Props {
+  locale: Locale;
+  copy: SiteCopy;
+  policy: PrivacyCopy;
+}
+
+const { locale, copy, policy } = Astro.props;
+const canonicalPath = locale === "zh" ? "/privacy/" : "/en/privacy/";
+const alternatePath = locale === "zh" ? "/en/privacy/" : "/privacy/";
+---
+
+<BaseLayout
+  {locale}
+  {copy}
+  title={policy.meta.title}
+  description={policy.meta.description}
+  {canonicalPath}
+  {alternatePath}
+>
+  <article class="legal-page">
+    <header class="legal-hero">
+      <p class="eyebrow">{policy.eyebrow}</p>
+      <h1>{policy.title}</h1>
+      <p class="legal-lead">{policy.lead}</p>
+      <p class="effective-date">{policy.effectiveDate}</p>
+    </header>
+
+    <aside class="privacy-summary" aria-labelledby="privacy-summary-title">
+      <h2 id="privacy-summary-title">{policy.summaryTitle}</h2>
+      <ul>{policy.summary.map((point) => <li>{point}</li>)}</ul>
+    </aside>
+
+    <div class="legal-grid">
+      <nav class="legal-contents" aria-label={policy.contentsLabel}>
+        <strong>{policy.contentsLabel}</strong>
+        {policy.sections.map((section) => <a href={`#${section.id}`}>{section.title}</a>)}
+      </nav>
+
+      <div class="legal-body">
+        {policy.sections.map((section) => (
+          <section id={section.id} aria-labelledby={`${section.id}-title`}>
+            <h2 id={`${section.id}-title`}>{section.title}</h2>
+            {section.paragraphs.map((paragraph) => <p>{paragraph}</p>)}
+            {section.points && <ul>{section.points.map((point) => <li>{point}</li>)}</ul>}
+          </section>
+        ))}
+        <a class="button secondary legal-contact" href="https://github.com/kleedaisuki/scrap">
+          {policy.contactLabel}<span aria-hidden="true">↗</span>
+        </a>
+      </div>
+    </div>
+  </article>
+</BaseLayout>

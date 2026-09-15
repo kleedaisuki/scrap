@@ -5,13 +5,14 @@
 
 .EXAMPLE
 ./build/package-store.ps1 -IdentityName '12345MoeSegfault.Scrap' -Publisher 'CN=...' `
-  -PublisherDisplayName 'MoeSegfault' -ReleaseVersion '1.0.0'
+  -PublisherDisplayName 'MoeSegfault' -ProductDisplayName 'moeSegFault Scrap' -ReleaseVersion '1.0.0'
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $IdentityName,
     [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Publisher,
     [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $PublisherDisplayName,
+    [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $ProductDisplayName,
     [Parameter(Mandatory)]
     [ValidatePattern("^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")]
     [string] $ReleaseVersion,
@@ -42,6 +43,9 @@ $packageName = "scrap-store-v$PackageVersion-win-x64.msix"
 $packagePath = Join-Path $outputRoot $packageName
 
 try {
+    # 打包是纯读取操作；只验证已提交的生成资产，不改写源树。
+    # Packaging is read-only: validate committed generated assets without rewriting the source tree.
+    & (Join-Path $PSScriptRoot "generate-store-assets.ps1") -ValidateOnly | Out-Null
     Publish-ScrapWindowsEntryPoints -RepositoryRoot $repoRoot -WorkRoot $workRoot -PayloadRoot $payloadRoot -ReleaseVersion $ReleaseVersion
     Assert-ScrapWindowsEntryPointMetadata -PayloadRoot $payloadRoot -ReleaseVersion $ReleaseVersion
 
@@ -54,12 +58,17 @@ try {
     [xml]$manifest = Get-Content -LiteralPath (Join-Path $storeRoot "AppxManifest.xml") -Raw
     $namespace = New-Object Xml.XmlNamespaceManager($manifest.NameTable)
     $namespace.AddNamespace("f", "http://schemas.microsoft.com/appx/manifest/foundation/windows10")
+    $namespace.AddNamespace("uap", "http://schemas.microsoft.com/appx/manifest/uap/windows10")
     $identity = $manifest.SelectSingleNode("/f:Package/f:Identity", $namespace)
     $properties = $manifest.SelectSingleNode("/f:Package/f:Properties", $namespace)
     $identity.SetAttribute("Name", $IdentityName)
     $identity.SetAttribute("Publisher", $Publisher)
     $identity.SetAttribute("Version", $PackageVersion)
     $properties.SelectSingleNode("f:PublisherDisplayName", $namespace).InnerText = $PublisherDisplayName
+    $properties.SelectSingleNode("f:DisplayName", $namespace).InnerText = $ProductDisplayName
+    $visualElements = $manifest.SelectSingleNode("/f:Package/f:Applications/f:Application/uap:VisualElements", $namespace)
+    if ($null -eq $visualElements) { throw "Store manifest is missing uap:VisualElements." }
+    $visualElements.SetAttribute("DisplayName", $ProductDisplayName)
 
     $manifestPath = Join-Path $payloadRoot "AppxManifest.xml"
     $settings = New-Object Xml.XmlWriterSettings
@@ -87,6 +96,7 @@ try {
     $packedNamespaces = New-Object Xml.XmlNamespaceManager($packedManifest.NameTable)
     $packedNamespaces.AddNamespace("f", "http://schemas.microsoft.com/appx/manifest/foundation/windows10")
     $packedNamespaces.AddNamespace("uap5", "http://schemas.microsoft.com/appx/manifest/uap/windows10/5")
+    $packedNamespaces.AddNamespace("uap", "http://schemas.microsoft.com/appx/manifest/uap/windows10")
     $packedNamespaces.AddNamespace("desktop4", "http://schemas.microsoft.com/appx/manifest/desktop/windows10/4")
     $packedNamespaces.AddNamespace("rescap", "http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities")
     $packedIdentity = $packedManifest.SelectSingleNode("/f:Package/f:Identity", $packedNamespaces)
@@ -97,6 +107,12 @@ try {
     $packedDisplayName = $packedManifest.SelectSingleNode("/f:Package/f:Properties/f:PublisherDisplayName", $packedNamespaces)
     if ($null -eq $packedDisplayName -or $packedDisplayName.InnerText -cne $PublisherDisplayName) {
         throw "Generated MSIX PublisherDisplayName does not exactly match the requested Partner Center identity."
+    }
+    $packedProductDisplayName = $packedManifest.SelectSingleNode("/f:Package/f:Properties/f:DisplayName", $packedNamespaces)
+    $packedVisualDisplayName = $packedManifest.SelectSingleNode("/f:Package/f:Applications/f:Application/uap:VisualElements", $packedNamespaces)
+    if ($null -eq $packedProductDisplayName -or $packedProductDisplayName.InnerText -cne $ProductDisplayName -or
+        $null -eq $packedVisualDisplayName -or $packedVisualDisplayName.GetAttribute("DisplayName") -cne $ProductDisplayName) {
+        throw "Generated MSIX package and application DisplayName values must exactly match ProductDisplayName."
     }
 
     # 清单断言与运行时 smoke 互补：前者防止入口/能力悄然增加，后者证明 Windows 接受这些声明。

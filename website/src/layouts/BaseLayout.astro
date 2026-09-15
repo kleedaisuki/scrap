@@ -5,12 +5,27 @@ import type { Locale, SiteCopy } from "../lib/content";
 interface Props {
   locale: Locale;
   copy: SiteCopy;
+  title?: string;
+  description?: string;
+  canonicalPath?: string;
+  alternatePath?: string;
 }
 
-const { locale, copy } = Astro.props;
+const {
+  locale,
+  copy,
+  title = copy.meta.title,
+  description = copy.meta.description,
+  canonicalPath = locale === "zh" ? "/" : "/en/",
+  alternatePath = locale === "zh" ? "/en/" : "/",
+} = Astro.props;
 const alternateLocale: Locale = locale === "zh" ? "en" : "zh";
 const localeLabel = locale === "zh" ? "EN" : "中文";
-const canonicalPath = locale === "zh" ? "/" : "/en/";
+const homePath = locale === "zh" ? "/" : "/en/";
+const privacyPath = locale === "zh" ? "/privacy/" : "/en/privacy/";
+const supportPath = locale === "zh" ? "/support/" : "/en/support/";
+const chineseAlternate = locale === "zh" ? canonicalPath : alternatePath;
+const englishAlternate = locale === "en" ? canonicalPath : alternatePath;
 const canonical = new URL(canonicalPath, Astro.site);
 const releasesUrl = "https://github.com/kleedaisuki/scrap/releases";
 ---
@@ -22,21 +37,21 @@ const releasesUrl = "https://github.com/kleedaisuki/scrap/releases";
     <meta name="viewport" content="width=device-width" />
     <meta name="theme-color" content="#fff6ea" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#21130f" media="(prefers-color-scheme: dark)" />
-    <meta name="description" content={copy.meta.description} />
+    <meta name="description" content={description} />
     <meta name="generator" content={Astro.generator} />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content={copy.meta.title} />
-    <meta property="og:description" content={copy.meta.description} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical} />
     <meta property="og:image" content={new URL("/scrap-icon-512.png", Astro.site)} />
     <link rel="canonical" href={canonical} />
-    <link rel="alternate" hreflang="zh-CN" href={new URL("/", Astro.site)} />
-    <link rel="alternate" hreflang="en" href={new URL("/en/", Astro.site)} />
-    <link rel="alternate" hreflang="x-default" href={new URL("/", Astro.site)} />
+    <link rel="alternate" hreflang="zh-CN" href={new URL(chineseAlternate, Astro.site)} />
+    <link rel="alternate" hreflang="en" href={new URL(englishAlternate, Astro.site)} />
+    <link rel="alternate" hreflang="x-default" href={new URL(chineseAlternate, Astro.site)} />
     <link rel="icon" type="image/png" sizes="32x32" href="/scrap-icon-32.png" />
     <link rel="apple-touch-icon" href="/scrap-icon-256.png" />
     <link rel="stylesheet" href="https://style.moesegfault.dev/v0.1.2/css/all.css" />
-    <title>{copy.meta.title}</title>
+    <title>{title}</title>
     <script is:inline>
       (() => {
         try {
@@ -53,17 +68,17 @@ const releasesUrl = "https://github.com/kleedaisuki/scrap/releases";
   <body>
     <a class="skip-link" href="#main">{locale === "zh" ? "跳到主要内容" : "Skip to content"}</a>
     <header class="site-header">
-      <a class="brand" href={canonicalPath} aria-label="scrap home">
+      <a class="brand" href={homePath} aria-label="scrap home">
         <img src="/scrap-icon-64.png" alt="" width="36" height="36" />
         <span>scrap</span>
       </a>
       <nav aria-label={locale === "zh" ? "主导航" : "Main navigation"}>
-        <a href="#features">{copy.nav.features}</a>
-        <a href="#architecture">{copy.nav.design}</a>
-        <a href="#download">{copy.nav.download}</a>
+        <a href={`${homePath}#features`}>{copy.nav.features}</a>
+        <a href={`${homePath}#architecture`}>{copy.nav.design}</a>
+        <a href={`${homePath}#download`}>{copy.nav.download}</a>
       </nav>
       <div class="header-actions">
-        <a class="language-link" href={alternateLocale === "zh" ? "/" : "/en/"} hreflang={alternateLocale}>{localeLabel}</a>
+        <a class="language-link" href={alternatePath} hreflang={alternateLocale}>{localeLabel}</a>
         <button
           class="theme-toggle"
           type="button"
@@ -91,6 +106,8 @@ const releasesUrl = "https://github.com/kleedaisuki/scrap/releases";
       <div class="footer-links">
         <a href="https://github.com/kleedaisuki/scrap">GitHub</a>
         <a href={releasesUrl}>{copy.nav.download}</a>
+        <a href={supportPath}>{copy.footer.support}</a>
+        <a href={privacyPath}>{copy.footer.privacy}</a>
         <span>{copy.footer.license}</span>
       </div>
     </footer>

@@ -36,11 +36,35 @@ public partial class MainWindow : Window
     /// </summary>
     /// <param name="client">GUI 应用 client。GUI application client.</param>
     public MainWindow(IScrapClient client)
+        : this(client, new UserPreferenceStore(), clipboard: null)
+    {
+    }
+
+    /// <summary>
+    /// 使用显式的剪贴板与偏好存储创建窗口，用于可重现的组合测试和发布截图。
+    /// Creates a window with explicit clipboard and preference boundaries for reproducible composition tests and release captures.
+    /// </summary>
+    /// <param name="client">GUI 应用 client。GUI application client.</param>
+    /// <param name="clipboard">不触及全局状态的剪贴板边界。Clipboard boundary that does not require global state.</param>
+    /// <param name="preferenceStore">显式偏好存储。Explicit preference store.</param>
+    public MainWindow(
+        IScrapClient client,
+        IClipboardService clipboard,
+        UserPreferenceStore preferenceStore)
+        : this(client, preferenceStore, clipboard)
+    {
+    }
+
+    private MainWindow(
+        IScrapClient client,
+        UserPreferenceStore preferenceStore,
+        IClipboardService? clipboard)
     {
         InitializeComponent();
         DataContext = new MainWindowViewModel(
             client,
-            new AvaloniaClipboardService(() => TopLevel.GetTopLevel(this)?.Clipboard),
+            clipboard ?? new AvaloniaClipboardService(() => TopLevel.GetTopLevel(this)?.Clipboard),
+            preferenceStore: preferenceStore,
             applyTheme: ApplyTheme);
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         Loaded += OnLoaded;

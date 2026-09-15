@@ -10,6 +10,7 @@ interface Props {
 const { locale, copy } = Astro.props;
 const releaseUrl = "https://github.com/kleedaisuki/scrap/releases";
 const signingPolicyUrl = "https://github.com/kleedaisuki/scrap/blob/main/docs/code-signing-policy.md";
+const screenshotLocale = locale === "zh" ? "zh-CN" : "en-US";
 ---
 
 <BaseLayout {locale} {copy}>
@@ -24,43 +25,17 @@ const signingPolicyUrl = "https://github.com/kleedaisuki/scrap/blob/main/docs/co
       </div>
       <p class="availability"><span aria-hidden="true"></span>{copy.hero.availability}</p>
     </div>
-    <div class="product-window" aria-label={locale === "zh" ? "scrap 桌面端界面预览" : "Preview of the scrap desktop app"}>
-      <div class="window-bar">
-        <span class="window-brand"><img src="/scrap-icon-32.png" alt="" width="24" height="24" />scrap</span>
-        <span class="window-controls" aria-hidden="true">—　□　×</span>
-      </div>
-      <div class="window-body">
-        <div class="scope-row">
-          <span>{copy.demo.scope}</span>
-          <span class="mock-control">{copy.demo.scopes[0]} <span aria-hidden="true">⌄</span></span>
-        </div>
-        <div class="scope-chips" aria-hidden="true">
-          {copy.demo.scopes.slice(1).map((scope, index) => <span class:list={{ active: index < 2 }}>{scope}</span>)}
-        </div>
-        <div class="search-row">
-          <span class="search-box"><span aria-hidden="true">⌕</span>{copy.demo.search}</span>
-          <span class="mode-pill">{copy.demo.mode}</span>
-        </div>
-        <div class="record-grid">
-          <div class="record-list">
-            {copy.demo.keys.map((key, index) => (
-              <div class:list={["record-item", { selected: index === 0 }]}>
-                <span class="record-key">{key}</span>
-                <span class="record-scope">{index === 2 ? "staging" : index === 1 ? "github" : "cloudflare"}</span>
-              </div>
-            ))}
-          </div>
-          <div class="record-detail">
-            <span class="detail-label">{copy.demo.selected}</span>
-            <strong>{copy.demo.value}</strong>
-            <div class="detail-actions">
-              <span>{copy.demo.copy}</span>
-              <span>{copy.demo.reveal}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <figure class="product-shot hero-shot">
+      <div class="shot-glow" aria-hidden="true"></div>
+      <img
+        src={`/screenshots/${screenshotLocale}/multi-scope-search.png`}
+        alt={copy.showcase.scopeAlt}
+        width="1366"
+        height="768"
+        fetchpriority="high"
+      />
+      <figcaption>{copy.showcase.scopeCaption}</figcaption>
+    </figure>
   </section>
 
   <div class="trust-strip" aria-label={locale === "zh" ? "产品要点" : "Product highlights"}>
@@ -69,6 +44,24 @@ const signingPolicyUrl = "https://github.com/kleedaisuki/scrap/blob/main/docs/co
     <span>GUI + CLI</span>
     <span>{locale === "zh" ? "开放源代码" : "Open source"}</span>
   </div>
+
+  <section class="showcase section-shell" aria-labelledby="showcase-title">
+    <div class="showcase-copy">
+      <p class="section-kicker">{copy.showcase.kicker}</p>
+      <h2 id="showcase-title">{copy.showcase.title}</h2>
+      <p>{copy.showcase.body}</p>
+    </div>
+    <figure class="product-shot create-shot">
+      <img
+        src={`/screenshots/${screenshotLocale}/create-record.png`}
+        alt={copy.showcase.createAlt}
+        width="1366"
+        height="768"
+        loading="lazy"
+      />
+      <figcaption>{copy.showcase.createCaption}</figcaption>
+    </figure>
+  </section>
 
   <section class="problem-band">
     <div>

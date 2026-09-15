@@ -60,6 +60,7 @@ dotnet restore Scrap.slnx --locked-mode
   -IdentityName '<Partner Center Package/Identity/Name>' `
   -Publisher '<Partner Center Package/Identity/Publisher>' `
   -PublisherDisplayName '<Partner Center PublisherDisplayName>' `
+  -ProductDisplayName 'moeSegFault Scrap' `
   -ReleaseVersion '1.0.0'
 ```
 
@@ -67,7 +68,21 @@ Store 数字版本独立记录在 `installer/Scrap.Installer.Store/StoreVersion.
 
 `.github/workflows/store-package.yml` 在一次性 Windows runner 中复制候选、创建临时证书、签名测试副本、安装并验证 `scrap.exe --help`、daemon 自动启动/IPC、PATH 不变、卸载与 `~/.scrap` 保留，最后无条件清理包与证书。AppX deployment 当前只认可计算机级 `TrustedPeople`，所以测试公钥短暂导入 `LocalMachine\TrustedPeople`，私钥仍为不可导出的当前用户密钥；该步骤只运行在临时管理员 runner，绝不用于开发机或用户设备。提交前还必须在**完全相同的候选包**上运行 Windows 应用认证工具包（Windows App Certification Kit, WACK），并审阅 Partner Center ingestion 结果。架构、不变量和官方证据见 [`store-msix-architecture.md`](store-msix-architecture.md)。
 
-普通 push/PR 使用明确的 CI 假身份；手动运行工作流才生成生产候选。手动运行前必须把上述三个精确值分别配置为 repository variables `STORE_IDENTITY_NAME`、`STORE_PUBLISHER`、`STORE_PUBLISHER_DISPLAY_NAME`，并输入 Release SemVer 与递增 Store version。缺少任何变量会直接拒绝构建，而不会退回 CI 占位身份。
+普通 push/PR 使用明确的 CI 假身份与 `Scrap CI Package` 显示名；手动运行工作流才生成生产候选。手动运行前必须配置 repository variables `STORE_IDENTITY_NAME`、`STORE_PUBLISHER`、`STORE_PUBLISHER_DISPLAY_NAME`、`STORE_PRODUCT_DISPLAY_NAME`；最后一项必须是保留名称 `moeSegFault Scrap`。脚本把它同时写入包级 DisplayName 与应用 VisualElements DisplayName，并在解包后精确复核。缺少任何变量会直接拒绝构建，而不会退回 CI 占位值。
+
+手动工作流的 `package_version` 是可选覆盖项；留空时读取受版本控制的 `installer/Scrap.Installer.Store/StoreVersion.txt`。不要在工作流 UI 中复制一个会与版本计数器漂移的默认值。
+
+`build/generate-store-assets.ps1` 从唯一品牌源图生成并验证 MSIX 的 scale/targetsize/unplated 变体及 `store-listing/assets/AppTileIcon-300x300.png`；Store workflow 会拒绝未提交的生成差异。双语一览文案、功能项、截图说明、隐私/年龄分级答案与 `runFullTrust` 审核说明集中在 [`store-listing/`](../store-listing/README.md)。首次提交的 **What's new** 必须完全留空。
+
+在相同候选上运行 WACK，不要用重新构建的“等价包”替代：
+
+```powershell
+./build/run-store-certification.ps1 -Candidate ./artifacts/store/scrap-store-v1.0.2.0-win-x64.msix
+```
+
+脚本只在仓库 `.temp/wack/` 保存可审阅报告与候选 hash，不提权、不安装证书；缺少/不完整报告、工具失败或任何必需测试未通过都会明确失败。若 WACK 汇总为 `WARNING` 但所有非通过项均明确标记为 optional，可人工审阅后显式添加 `-AllowOptionalWarnings`；脚本仍会醒目标出“不是 PASS”。WACK 需要不被中断的交互式 Windows 用户会话，仍不能替代 Partner Center ingestion。
+
+当前 `1.0.2.0` / `0.2.0-preview.8` 本地候选的 WACK 结果是完整运行、24 项测试、`OVERALL_RESULT=PASS`，所有必需项通过。可选的 **Blocked executables** 静态分析仍因 self-contained .NET 载荷包含进程启动 API 与运行时工具名字符串而报 `FAIL`；脚本不会隐藏该项。此前的 DPI awareness warning 已通过 GUI executable 的 Per-Monitor V2 manifest 修复并在本次报告中通过。
 
 ## 3. Linux 与 macOS 安装
 
@@ -154,7 +169,8 @@ GitHub 签发 Pages 源站证书期间，Cloudflare 上的该 CNAME 应先设为
 - [ ] `.NET` 三平台 test 与 website `ci` 全部通过；
 - [ ] 四个 RID 的应用从打包产物启动，而非只验证源码 build；
 - [ ] Windows MSI fresh install、upgrade、GUI/CLI 启动、PATH 与 normal uninstall 已验证；
-- [ ] Store candidate 使用 Partner Center 精确身份与递增四段版本；unsigned candidate 经 MakeAppx、installed CI smoke、WACK 与 Partner Center ingestion 验证；
+- [ ] Store candidate 使用 Partner Center 精确身份、`moeSegFault Scrap` 双层显示名与递增四段版本；图标已重新生成且无 diff；unsigned candidate 经 MakeAppx、installed CI smoke、WACK 与 Partner Center ingestion 验证；
+- [ ] `zh-CN`/`en-US` 文案、300×300 图标、每语言四张真实桌面截图、隐私 URL 和 `runFullTrust` 说明均已填写；首次 What's new 留空；
 - [ ] 若配置签名，executable 和 MSI 的 publisher、RFC 3161 timestamp 与 `signtool verify /pa /all` 均正确；若未配置，Release notes 不声称已签名；
 - [ ] 每个资产的 sidecar 与 `SHA256SUMS` 在签名完成后生成并验证；
 - [ ] `/`、`/en/`、主题切换、产品图标与平台下载链接正确；
