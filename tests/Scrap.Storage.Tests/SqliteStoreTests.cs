@@ -223,9 +223,34 @@ public sealed class SqliteStoreTests
             database.Store.SetRecord("unicode", key, 0, _ => Protected(key));
         }
 
-        var metadata = database.Store.ListAllRecordMetadata("unicode");
+        var metadata = database.Store.ListAllRecordMetadata(["unicode"]);
         Assert.Equal(OrdinalEdgeCaseOrder, metadata.Select(record => record.Identity.Key));
         Assert.All(metadata, record => Assert.True(record.Revision > 0));
+    }
+
+    /// <summary>跨 scope 投影可筛选或检索全部，并按 scope+key 确定排序。 / Cross-scope projections can filter or search all and use deterministic scope+key ordering.</summary>
+    [Fact]
+    public void ListAllRecordMetadataSupportsSelectedAndAllScopes()
+    {
+        using var database = TestDatabase.Create();
+        foreach (var scope in new[] { "z", "A", "ignored" })
+        {
+            database.Store.CreateScope(scope);
+        }
+
+        database.Store.SetRecord("z", "a", 0, _ => Protected("z-a"));
+        database.Store.SetRecord("A", "b", 0, _ => Protected("A-b"));
+        database.Store.SetRecord("A", "a", 0, _ => Protected("A-a"));
+        database.Store.SetRecord("ignored", "x", 0, _ => Protected("ignored-x"));
+
+        IReadOnlyList<StoredRecordMetadata> selected = database.Store.ListAllRecordMetadata(["z", "A"]);
+        IReadOnlyList<StoredRecordMetadata> all = database.Store.ListAllRecordMetadata([]);
+
+        Assert.Equal(
+            [("A", "a"), ("A", "b"), ("z", "a")],
+            selected.Select(record => (record.Identity.ScopeName, record.Identity.Key)));
+        Assert.Equal(4, all.Count);
+        Assert.Throws<StorageNotFoundException>(() => database.Store.ListAllRecordMetadata(["missing"]));
     }
 
     [Fact]
@@ -455,7 +480,7 @@ public sealed class SqliteStoreTests
         Assert.True(competingWriterAcquired);
         Assert.Equal(recordCount, callbackCount);
         Assert.Equal(recordCount, result.ReencryptedRecordCount);
-        Assert.All(database.Store.ListAllRecordMetadata("new"), record => Assert.Equal(2, record.Revision));
+        Assert.All(database.Store.ListAllRecordMetadata(["new"]), record => Assert.Equal(2, record.Revision));
     }
 
     [Fact]
@@ -482,7 +507,7 @@ public sealed class SqliteStoreTests
         Assert.Equal(51, callbackCount);
         Assert.NotNull(database.Store.GetScope("old"));
         Assert.Null(database.Store.GetScope("new"));
-        var unchanged = database.Store.ListAllRecordMetadata("old");
+        var unchanged = database.Store.ListAllRecordMetadata(["old"]);
         Assert.Equal(recordCount, unchanged.Count);
         Assert.All(unchanged, record => Assert.Equal(1, record.Revision));
     }
@@ -548,7 +573,7 @@ public sealed class SqliteStoreTests
 
         Assert.Equal(StorageConflictKind.Concurrency, exception.Kind);
         Assert.NotNull(database.Store.GetScope("dev"));
-        Assert.Equal(2, database.Store.ListAllRecordMetadata("dev").Count);
+        Assert.Equal(2, database.Store.ListAllRecordMetadata(["dev"]).Count);
         Assert.Equal(2, database.Store.DeleteScope("dev", recursive: true, expectedRecordCount: 2));
         Assert.Null(database.Store.GetScope("dev"));
     }
@@ -684,4 +709,3 @@ internal sealed class TestDatabase : IDisposable
         }
     }
 }
-

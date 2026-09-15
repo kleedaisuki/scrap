@@ -236,16 +236,11 @@ public static class CliApplication
         ICliEnvironment environment,
         CancellationToken cancellationToken)
     {
-        var line = CommandLine.Parse(
+        var line = CommandLine.ParseWithValues(
             args,
-            "--exact",
-            "--fuzzy",
-            "--regex",
-            "--case-sensitive",
-            "--case-insensitive",
-            Json,
-            NoColor);
-        line.RequireOperands(2);
+            ["--exact", "--fuzzy", "--regex", "--case-sensitive", "--case-insensitive", "--all", Json, NoColor],
+            "--scope");
+        line.RequireOperands(1);
 
         var modes = SearchModeOptions.Where(line.Has).ToArray();
         if (modes.Length != 1)
@@ -258,15 +253,21 @@ public static class CliApplication
             throw new CliUsageException("Case-sensitivity options are mutually exclusive.");
         }
 
+        IReadOnlyList<string> scopes = line.Values("--scope");
+        if (line.Has("--all") && scopes.Count != 0)
+        {
+            throw new CliUsageException("--all and --scope are mutually exclusive.");
+        }
+
         var mode = modes[0] switch
         {
             "--exact" => SearchMode.Exact,
             "--fuzzy" => SearchMode.Fuzzy,
             _ => SearchMode.Regex,
         };
-        var search = new RecordSearch(line.Operands[0], line.Operands[1], mode, line.Has("--case-sensitive"));
+        var search = new RecordSearch(scopes, line.Operands[0], mode, line.Has("--case-sensitive"));
         var records = await client.SearchRecordsAsync(search, cancellationToken).ConfigureAwait(false);
-        await WriteRecordsAsync(environment.Output, records, line.Has(Json)).ConfigureAwait(false);
+        await WriteSearchRecordsAsync(environment.Output, records, line.Has(Json)).ConfigureAwait(false);
         return ExitCodes.Success;
     }
 
@@ -371,6 +372,21 @@ public static class CliApplication
         }
     }
 
+    /// <summary>输出不会丢失跨 scope 身份的搜索结果。 / Writes search results without losing cross-scope identity.</summary>
+    private static async Task WriteSearchRecordsAsync(TextWriter output, IReadOnlyList<RecordItem> records, bool json)
+    {
+        if (json)
+        {
+            await WriteJsonAsync(output, records).ConfigureAwait(false);
+            return;
+        }
+
+        foreach (var record in records)
+        {
+            await WriteLineAsync(output, $"{record.Scope}\t{record.Key}").ConfigureAwait(false);
+        }
+    }
+
     private static async Task WriteJsonAsync<T>(TextWriter output, T value)
     {
         await output.WriteAsync(JsonSerializer.Serialize(value, JsonOptions)).ConfigureAwait(false);
@@ -452,7 +468,7 @@ public static class CliApplication
           scrap rename <scope> <old-key> <new-key>
           scrap delete <scope> <key>
           scrap list <scope> [--json]
-          scrap find <scope> <query> (--exact|--fuzzy|--regex) [--case-sensitive] [--json]
+          scrap find <query> (--exact|--fuzzy|--regex) ([--scope <scope>]... | --all) [--case-sensitive] [--json]
 
         Daemon commands:
           scrap daemon ping

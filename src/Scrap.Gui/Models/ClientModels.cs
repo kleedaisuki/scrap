@@ -16,6 +16,48 @@ public enum SearchMode
 }
 
 /// <summary>
+/// 搜索覆盖范围；与当前用于创建和管理记录的 scope 选择互相独立。
+/// Search coverage, intentionally independent from the scope selected for record management.
+/// </summary>
+public enum SearchCoverage
+{
+    /// <summary>仅搜索当前 scope。Search only the current scope.</summary>
+    CurrentScope,
+
+    /// <summary>搜索所有 scope。Search every scope.</summary>
+    AllScopes,
+}
+
+/// <summary>界面主题选择。User-facing theme preference.</summary>
+public enum AppTheme
+{
+    /// <summary>跟随操作系统。Follow the operating system.</summary>
+    System,
+
+    /// <summary>浅色主题。Light theme.</summary>
+    Light,
+
+    /// <summary>深色主题。Dark theme.</summary>
+    Dark,
+}
+
+/// <summary>支持的界面语言。Supported user-interface language.</summary>
+public enum AppLanguage
+{
+    /// <summary>简体中文。Simplified Chinese.</summary>
+    SimplifiedChinese,
+
+    /// <summary>英语。English.</summary>
+    English,
+}
+
+/// <summary>带稳定值和本地化标签的选择项。A choice with a stable value and localized label.</summary>
+/// <typeparam name="T">稳定设置值的类型。Stable setting value type.</typeparam>
+/// <param name="Value">稳定设置值。Stable setting value.</param>
+/// <param name="Label">当前语言下的标签。Label in the active language.</param>
+public sealed record LocalizedChoice<T>(T Value, string Label) where T : struct, Enum;
+
+/// <summary>
 /// 记录值的呈现策略；它不改变存储或加密语义。
 /// Presentation policy for a record value; it does not change storage or encryption semantics.
 /// </summary>
@@ -38,13 +80,13 @@ public sealed record ScopeSummary(string Name, int RecordCount);
 /// <summary>
 /// 搜索请求。Search request.
 /// </summary>
-/// <param name="Scope">明确的目标 scope。Explicit target scope.</param>
+/// <param name="Scopes">精确 scope 集合；空集合表示所有 scope。Exact scopes; empty means all scopes.</param>
 /// <param name="Query">只匹配 key 的查询。Query matched only against keys.</param>
 /// <param name="Mode">匹配模式。Matching mode.</param>
 /// <param name="CaseSensitive">是否使用大小写敏感匹配。Whether matching is case-sensitive.</param>
 /// <param name="Limit">最大候选数量。Maximum candidate count.</param>
 public sealed record RecordSearchRequest(
-    string Scope,
+    IReadOnlyList<string> Scopes,
     string Query,
     SearchMode Mode,
     bool CaseSensitive,
@@ -54,10 +96,11 @@ public sealed record RecordSearchRequest(
 /// 搜索返回的轻量候选；score 仅用于排序，界面不会伪装成百分比。
 /// Lightweight search candidate; the score is only for ordering and is never presented as a percentage.
 /// </summary>
+/// <param name="Scope">候选所属 scope。Scope owning the candidate.</param>
 /// <param name="Key">记录 key。Record key.</param>
 /// <param name="Presentation">呈现策略。Presentation policy.</param>
 /// <param name="Score">可选的不透明排序分数。Optional opaque ranking score.</param>
-public sealed record RecordCandidate(string Key, RecordPresentation Presentation, double? Score = null);
+public sealed record RecordCandidate(string Scope, string Key, RecordPresentation Presentation, double? Score = null);
 
 /// <summary>
 /// 用户明确选中后加载的完整记录。Full record loaded only after explicit user selection.

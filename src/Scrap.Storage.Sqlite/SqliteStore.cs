@@ -510,30 +510,49 @@ public sealed class SqliteStore
     }
 
     /// <summary>
-    /// 在一个连接的一条 SELECT snapshot 中读取 scope 的全部 metadata，且不读取密文/nonce；供 search 内存评分使用。<br/>
-    /// Reads all scope metadata without ciphertext/nonces in one SELECT snapshot on one connection; intended for in-memory search scoring.
+    /// 在一个 snapshot 中读取选定 scope 的全部 metadata，且不读取密文/nonce；空集合表示全部 scope。<br/>
+    /// Reads all metadata for selected scopes in one snapshot without ciphertext/nonces; an empty collection means all scopes.
     /// </summary>
-    public IReadOnlyList<StoredRecordMetadata> ListAllRecordMetadata(string scopeName)
+    /// <param name="scopeNames">精确 scope 名称；空集合表示全部。 / Exact scope names; empty means all.</param>
+    public IReadOnlyList<StoredRecordMetadata> ListAllRecordMetadata(IReadOnlyCollection<string> scopeNames)
     {
-        ValidateName(scopeName, nameof(scopeName));
+        ArgumentNullException.ThrowIfNull(scopeNames);
+        foreach (var scopeName in scopeNames)
+        {
+            ValidateName(scopeName, nameof(scopeNames));
+        }
+
+        string[] selectedScopes = scopeNames.Distinct(StringComparer.Ordinal).ToArray();
         using var connection = OpenConnection();
         using var transaction = connection.BeginTransaction(deferred: true);
-        var scope = FindScope(connection, transaction, scopeName)
-            ?? throw new StorageNotFoundException(StorageEntityKind.Scope, scopeName);
+        foreach (var scopeName in selectedScopes)
+        {
+            _ = FindScope(connection, transaction, scopeName)
+                ?? throw new StorageNotFoundException(StorageEntityKind.Scope, scopeName);
+        }
+
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = """
-            SELECT id, key, presentation, revision, created_at, updated_at
-            FROM records
-            WHERE scope_id = $scopeId
-            ORDER BY key COLLATE SCRAP_ORDINAL;
+        string filter = selectedScopes.Length == 0
+            ? string.Empty
+            : $"WHERE s.name IN ({string.Join(", ", selectedScopes.Select((_, index) => $"$scope{index}"))})";
+        command.CommandText = $"""
+            SELECT r.id, s.id, s.name, r.key, r.presentation, r.revision, r.created_at, r.updated_at
+            FROM records AS r
+            INNER JOIN scopes AS s ON s.id = r.scope_id
+            {filter}
+            ORDER BY s.name COLLATE SCRAP_ORDINAL, r.key COLLATE SCRAP_ORDINAL;
             """;
-        command.Parameters.AddWithValue("$scopeId", scope.Id);
+        for (var index = 0; index < selectedScopes.Length; index++)
+        {
+            command.Parameters.AddWithValue($"$scope{index}", selectedScopes[index]);
+        }
+
         using var reader = command.ExecuteReader();
         var records = new List<StoredRecordMetadata>();
         while (reader.Read())
         {
-            records.Add(ReadRecordMetadata(reader, scope.Id, scopeName));
+            records.Add(ReadSearchRecordMetadata(reader));
         }
 
         reader.Close();
@@ -1288,6 +1307,15 @@ public sealed class SqliteStore
         ParseTimestamp(reader.GetString(4)),
         ParseTimestamp(reader.GetString(5)));
 
+    /// <summary>读取包含 scope 身份的跨 scope 搜索投影。 / Reads a cross-scope search projection that includes scope identity.</summary>
+    private static StoredRecordMetadata ReadSearchRecordMetadata(SqliteDataReader reader) => new(
+        new RecordIdentity(CurrentSchemaVersion, reader.GetString(0), reader.GetString(2), reader.GetString(3)),
+        reader.GetInt64(1),
+        reader.GetInt32(4),
+        reader.GetInt64(5),
+        ParseTimestamp(reader.GetString(6)),
+        ParseTimestamp(reader.GetString(7)));
+
     private static void InsertRecord(
         SqliteConnection connection,
         SqliteTransaction transaction,
@@ -1543,4 +1571,3 @@ public sealed class SqliteStore
         CultureInfo.InvariantCulture,
         DateTimeStyles.RoundtripKind);
 }
-

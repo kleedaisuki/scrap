@@ -79,7 +79,17 @@ public sealed record RecordValue(string Value, RecordPresentation Presentation);
 /// 搜索请求；大小写是模式修饰符而不是独立模式。/
 /// Search request; case sensitivity modifies rather than replaces the search mode.
 /// </summary>
-public sealed record RecordSearch(string Scope, string Query, SearchMode Mode, bool CaseSensitive, int Limit = 100);
+/// <param name="Scopes">精确 scope 名称；空集合检索全部。 / Exact scope names; empty searches all.</param>
+/// <param name="Query">key 查询文本。 / Key query text.</param>
+/// <param name="Mode">匹配模式。 / Matching mode.</param>
+/// <param name="CaseSensitive">是否使用 ordinal 大小写敏感匹配。 / Whether matching uses ordinal case sensitivity.</param>
+/// <param name="Limit">全局结果上限。 / Global result limit.</param>
+public sealed record RecordSearch(
+    IReadOnlyList<string> Scopes,
+    string Query,
+    SearchMode Mode,
+    bool CaseSensitive,
+    int Limit = 100);
 
 /// <summary>daemon 版本协商结果。/ Daemon version-negotiation result.</summary>
 public sealed record DaemonVersion(string ApplicationVersion, int MinProtocolVersion, int MaxProtocolVersion);

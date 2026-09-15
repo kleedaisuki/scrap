@@ -11,7 +11,7 @@ public sealed class EnvelopeTests
         ProtocolRequest request = ProtocolRequest.Create(
             "opaque-id",
             ProtocolMethods.RecordSearch,
-            new SearchRequest("s", "Q", SearchMode.Regex, CaseSensitivity.Sensitive, 5));
+            new SearchRequest(["s"], "Q", SearchMode.Regex, CaseSensitivity.Sensitive, 5));
 
         string json = JsonSerializer.Serialize(request, ProtocolJson.Options);
 
@@ -72,13 +72,14 @@ public sealed class EnvelopeTests
     public void JsonDeserializer_AcceptsAddedFieldsButRejectsIntegerEnums()
     {
         const string compatible = """
-            {"scope":"s","query":"q","mode":"fuzzy","caseSensitivity":"insensitive","limit":10,"future":true}
+            {"scopes":["s","other"],"query":"q","mode":"fuzzy","caseSensitivity":"insensitive","limit":10,"future":true}
             """;
         SearchRequest request = ProtocolJson.Deserialize<SearchRequest>(Encoding.UTF8.GetBytes(compatible));
 
         Assert.Equal(SearchMode.Fuzzy, request.Mode);
+        Assert.Equal(["s", "other"], request.Scopes);
         const string integerEnum = """
-            {"scope":"s","query":"q","mode":1,"caseSensitivity":"insensitive","limit":10}
+            {"scopes":[],"query":"q","mode":1,"caseSensitivity":"insensitive","limit":10}
             """;
         Assert.Throws<JsonException>(() =>
             ProtocolJson.Deserialize<SearchRequest>(Encoding.UTF8.GetBytes(integerEnum)));

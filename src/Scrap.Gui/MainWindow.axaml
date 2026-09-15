@@ -1,276 +1,244 @@
-<Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:vm="using:Scrap.Gui.ViewModels"
-        xmlns:models="using:Scrap.Gui.Models"
-        x:Class="Scrap.Gui.MainWindow"
-        x:DataType="vm:MainWindowViewModel"
-        mc:Ignorable="d"
-        d:DesignWidth="1180"
-        d:DesignHeight="760"
-        Width="1180"
-        Height="760"
-        MinWidth="860"
-        MinHeight="600"
-        Title="scrap — local secrets, softly kept">
+<?xml version="1.0" ?>
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:vm="using:Scrap.Gui.ViewModels" xmlns:models="using:Scrap.Gui.Models" x:Class="Scrap.Gui.MainWindow" x:DataType="vm:MainWindowViewModel" mc:Ignorable="d" Width="1180" Height="760" MinWidth="940" MinHeight="620" Icon="avares://Scrap.Gui/Assets/scrap.png" Title="{Binding L.WindowTitle}">
   <Grid RowDefinitions="Auto,Auto,*">
-    <Border Grid.Row="0" IsEnabled="{Binding IsWorkspaceEnabled}" Background="#1B1724" BorderBrush="#3C334B" BorderThickness="0,0,0,1" Padding="24,16">
-      <Grid ColumnDefinitions="Auto,22,*,Auto" VerticalAlignment="Center">
+    <Border Grid.Row="0" IsEnabled="{Binding IsWorkspaceEnabled}" Background="{DynamicResource RaisedBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="24,14">
+      <Grid ColumnDefinitions="Auto,24,*,Auto" VerticalAlignment="Center">
         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-          <Border Width="36" Height="36" CornerRadius="12" Background="{DynamicResource PinkBrush}">
-            <TextBlock Text="✦" Foreground="#241728" FontSize="21" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <Border Width="38" Height="38" CornerRadius="10" Background="{DynamicResource AccentBrush}">
+            <TextBlock Text="S" Foreground="{DynamicResource OnAccentBrush}" FontFamily="Georgia" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
           </Border>
           <StackPanel>
-            <TextBlock Text="scrap" FontSize="21" FontWeight="Bold" />
-            <TextBlock Text="local-first tiny vault" Classes="muted" FontSize="11" />
+            <TextBlock Text="scrap" Classes="heading" FontSize="21" FontWeight="Bold"/>
+            <TextBlock Text="{Binding L.Tagline}" Classes="muted" FontSize="11"/>
           </StackPanel>
         </StackPanel>
-
         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-          <TextBlock Text="scope" Classes="accent" VerticalAlignment="Center" />
-          <ComboBox Width="260"
-                    AutomationProperties.Name="Scope selector"
-                    ItemsSource="{Binding Scopes}"
-                    SelectedItem="{Binding SelectedScope}"
-                    PlaceholderText="Choose a scope">
+          <TextBlock Text="{Binding L.Scope}" Classes="accent" VerticalAlignment="Center"/>
+          <ComboBox Width="220" ItemsSource="{Binding Scopes}" SelectedItem="{Binding SelectedScope}" PlaceholderText="{Binding L.ChooseScope}">
             <ComboBox.ItemTemplate>
               <DataTemplate x:DataType="models:ScopeSummary">
-                <Grid ColumnDefinitions="*,Auto" Width="230">
-                  <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-                  <TextBlock Grid.Column="1" Text="{Binding RecordCount}" Classes="muted" Margin="12,0,0,0" />
+                <Grid ColumnDefinitions="*,Auto" Width="190">
+                  <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
+                  <TextBlock Grid.Column="1" Text="{Binding RecordCount}" Classes="muted" Margin="12,0,0,0"/>
                 </Grid>
               </DataTemplate>
             </ComboBox.ItemTemplate>
           </ComboBox>
-          <TextBlock Text="{Binding ScopeStatus}" Classes="muted" VerticalAlignment="Center" />
+          <TextBlock Text="{Binding ScopeStatus}" Classes="muted" VerticalAlignment="Center"/>
         </StackPanel>
-
-        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6">
-          <Button Content="＋ Scope" Command="{Binding OpenCreateScopeCommand}" ToolTip.Tip="Create scope" />
-          <Button Content="Rename" Command="{Binding OpenRenameScopeCommand}" />
-          <Button Content="Delete" Classes="danger" Command="{Binding OpenDeleteScopeCommand}" />
+        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="7">
+          <Button Content="{Binding L.NewScope}" Command="{Binding OpenCreateScopeCommand}"/>
+          <Button Content="{Binding L.Rename}" Command="{Binding OpenRenameScopeCommand}"/>
+          <Button Content="{Binding L.Delete}" Classes="danger" Command="{Binding OpenDeleteScopeCommand}"/>
+          <ComboBox Width="106" ItemsSource="{Binding ThemeChoices}" SelectedItem="{Binding SelectedTheme}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:CompileBindings="False">
+                <TextBlock Text="{Binding Label}"/>
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+          <ComboBox Width="108" ItemsSource="{Binding LanguageChoices}" SelectedItem="{Binding SelectedLanguage}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:CompileBindings="False">
+                <TextBlock Text="{Binding Label}"/>
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
         </StackPanel>
       </Grid>
     </Border>
-
     <StackPanel Grid.Row="1" IsEnabled="{Binding IsWorkspaceEnabled}" Margin="24,16,24,12" Spacing="8">
       <Border Classes="panel" Padding="14">
-        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
-          <TextBox x:Name="SearchBox"
-                   Grid.Column="0"
-                   FontSize="16"
-                   Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                   PlaceholderText="Search keys in this scope…  (Ctrl+K or /)"
-                   AutomationProperties.Name="Search record keys"
-                   IsEnabled="{Binding HasSelectedScope}" />
-          <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="14,0,0,0" Spacing="3" VerticalAlignment="Center">
-            <RadioButton GroupName="SearchMode" Classes="mode" Content="Exact" IsChecked="{Binding IsExactMode}" />
-            <RadioButton GroupName="SearchMode" Classes="mode" Content="Fuzzy" IsChecked="{Binding IsFuzzyMode}" />
-            <RadioButton GroupName="SearchMode" Classes="mode" Content="Regex" IsChecked="{Binding IsRegexMode}" />
-            <CheckBox Content="Aa" AutomationProperties.Name="Case-sensitive search" IsChecked="{Binding CaseSensitive}" Margin="10,0,0,0" ToolTip.Tip="Case-sensitive / 大小写敏感" />
+        <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto">
+          <TextBox x:Name="SearchBox" Grid.Column="0" FontSize="16" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="{Binding L.SearchPlaceholder}" IsEnabled="{Binding HasSelectedScope}"/>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="14,0" Spacing="3" VerticalAlignment="Center">
+            <RadioButton GroupName="SearchMode" Classes="mode" Content="{Binding L.Exact}" IsChecked="{Binding IsExactMode}"/>
+            <RadioButton GroupName="SearchMode" Classes="mode" Content="{Binding L.Fuzzy}" IsChecked="{Binding IsFuzzyMode}"/>
+            <RadioButton GroupName="SearchMode" Classes="mode" Content="{Binding L.Regex}" IsChecked="{Binding IsRegexMode}"/>
+            <CheckBox Content="Aa" IsChecked="{Binding CaseSensitive}" Margin="8,0,0,0" ToolTip.Tip="{Binding L.CaseSensitive}"/>
           </StackPanel>
-          <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding SearchError}" AutomationProperties.Name="Search expression error" AutomationProperties.LiveSetting="Assertive" Foreground="{DynamicResource RedBrush}" Margin="4,8,4,0" TextWrapping="Wrap" />
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
+            <TextBlock Text="{Binding L.SearchIn}" Classes="muted" VerticalAlignment="Center"/>
+            <ComboBox Width="150" ItemsSource="{Binding SearchCoverageChoices}" SelectedItem="{Binding SelectedSearchCoverage}">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:CompileBindings="False">
+                  <TextBlock Text="{Binding Label}"/>
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+          </StackPanel>
+          <TextBlock Grid.Row="1" Grid.ColumnSpan="3" Text="{Binding SearchError}" Foreground="{DynamicResource DangerBrush}" Margin="4,8,4,0" TextWrapping="Wrap"/>
         </Grid>
       </Border>
-
-      <Border IsVisible="{Binding HasError}" AutomationProperties.Name="Scrap error" AutomationProperties.LiveSetting="Assertive" Background="#422735" BorderBrush="{DynamicResource RedBrush}" BorderThickness="1" CornerRadius="12" Padding="14,10">
-        <Grid ColumnDefinitions="Auto,*,Auto,Auto">
-          <TextBlock Text="!" Foreground="{DynamicResource RedBrush}" FontWeight="Bold" FontSize="17" VerticalAlignment="Center" />
-          <StackPanel Grid.Column="1" Margin="12,0">
-            <TextBlock Text="{Binding ErrorTitle}" FontWeight="SemiBold" />
-            <TextBlock Text="{Binding ErrorMessage}" Classes="muted" TextWrapping="Wrap" />
+      <Border IsVisible="{Binding HasError}" Background="{DynamicResource AccentWashBrush}" BorderBrush="{DynamicResource DangerBrush}" BorderThickness="1" CornerRadius="10" Padding="14,10">
+        <Grid ColumnDefinitions="*,Auto,Auto">
+          <StackPanel>
+            <TextBlock Text="{Binding ErrorTitle}" FontWeight="SemiBold"/>
+            <TextBlock Text="{Binding ErrorMessage}" Classes="muted" TextWrapping="Wrap"/>
           </StackPanel>
-          <Button Grid.Column="2" Content="Retry" Command="{Binding RetryCommand}" Margin="0,0,6,0" />
-          <Button Grid.Column="3" Content="×" AutomationProperties.Name="Dismiss error" Command="{Binding DismissErrorCommand}" />
+          <Button Grid.Column="1" Content="{Binding L.Retry}" Command="{Binding RetryCommand}" Margin="8,0"/>
+          <Button Grid.Column="2" Content="×" Command="{Binding DismissErrorCommand}"/>
         </Grid>
       </Border>
     </StackPanel>
-
-    <Grid Grid.Row="2" IsEnabled="{Binding IsWorkspaceEnabled}" Margin="24,0,24,24" ColumnDefinitions="360,14,*">
+    <Grid Grid.Row="2" IsEnabled="{Binding IsWorkspaceEnabled}" Margin="24,0,24,24" ColumnDefinitions="370,14,*">
       <Border Grid.Column="0" Classes="panel" Padding="10">
         <Grid RowDefinitions="Auto,*">
           <Grid Margin="8,4,8,10" ColumnDefinitions="*,Auto">
             <StackPanel>
-              <TextBlock Text="KEY CANDIDATES" Classes="accent" FontSize="12" />
-              <TextBlock Text="daemon-ranked · no secret values" Classes="muted" FontSize="11" />
+              <TextBlock Text="{Binding L.Candidates}" Classes="accent" FontSize="12"/>
+              <TextBlock Text="{Binding L.CandidatesHint}" Classes="muted" FontSize="11"/>
             </StackPanel>
-            <Button Grid.Column="1" Content="＋ New" Classes="primary" Command="{Binding OpenCreateRecordCommand}" ToolTip.Tip="Ctrl+N" />
+            <Button Grid.Column="1" Content="{Binding L.NewRecord}" Classes="primary" Command="{Binding OpenCreateRecordCommand}"/>
           </Grid>
-
           <Grid Grid.Row="1">
-            <ListBox x:Name="CandidateList"
-                     ItemsSource="{Binding Candidates}"
-                     SelectedItem="{Binding SelectedCandidate}">
+            <ListBox x:Name="CandidateList" ItemsSource="{Binding Candidates}" SelectedItem="{Binding SelectedCandidate}">
               <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="models:RecordCandidate">
-                  <Grid ColumnDefinitions="Auto,*,Auto">
-                    <TextBlock Text="›" Foreground="{DynamicResource PurpleBrush}" FontSize="18" Margin="0,-2,8,0" />
-                    <TextBlock Grid.Column="1" Text="{Binding Key}" FontFamily="Cascadia Mono,Consolas,monospace" TextTrimming="CharacterEllipsis" />
-                    <TextBlock Grid.Column="2" Text="{Binding Presentation}" Classes="muted" FontSize="10" Margin="8,0,0,0" />
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Text="{Binding Key}" FontFamily="IBM Plex Mono,Cascadia Mono,Consolas,monospace" TextTrimming="CharacterEllipsis"/>
+                    <Border Grid.Column="1" Background="{DynamicResource MutedSurfaceBrush}" CornerRadius="10" Padding="7,3" Margin="8,0,0,0">
+                      <TextBlock Text="{Binding Scope}" Classes="muted" FontSize="10"/>
+                    </Border>
                   </Grid>
                 </DataTemplate>
               </ListBox.ItemTemplate>
             </ListBox>
-
-            <StackPanel IsVisible="{Binding HasNoScopes}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" Margin="20">
-              <TextBlock Text="♡" Foreground="{DynamicResource PinkBrush}" FontSize="34" HorizontalAlignment="Center" />
-              <TextBlock Text="还没有 scope / No scopes yet" FontWeight="SemiBold" HorizontalAlignment="Center" />
-              <TextBlock Text="先给秘密准备一个小房间吧。&#10;Create the first flat namespace." Classes="muted" TextAlignment="Center" />
-              <Button Content="Create first scope" Classes="primary" Command="{Binding OpenCreateScopeCommand}" HorizontalAlignment="Center" />
+            <StackPanel IsVisible="{Binding HasNoScopes}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="9" Margin="20">
+              <TextBlock Text="♡" Foreground="{DynamicResource AccentBrush}" FontSize="34" HorizontalAlignment="Center"/>
+              <TextBlock Text="{Binding L.NoScopesTitle}" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+              <TextBlock Text="{Binding L.NoScopesBody}" Classes="muted" TextAlignment="Center"/>
+              <Button Content="{Binding L.CreateFirstScope}" Classes="primary" Command="{Binding OpenCreateScopeCommand}" HorizontalAlignment="Center"/>
             </StackPanel>
-
             <StackPanel IsVisible="{Binding HasNoCandidates}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" Margin="20">
-              <TextBlock Text="No candidates ૮ ˶ᵔ ᵕ ᵔ˶ ა" Classes="muted" HorizontalAlignment="Center" />
-              <Button Content="Create a record" Command="{Binding OpenCreateRecordCommand}" HorizontalAlignment="Center" />
+              <TextBlock Text="{Binding L.NoCandidates}" Classes="muted" HorizontalAlignment="Center"/>
+              <Button Content="{Binding L.CreateRecord}" Command="{Binding OpenCreateRecordCommand}" HorizontalAlignment="Center"/>
             </StackPanel>
-
-            <ProgressBar IsVisible="{Binding IsSearching}" IsIndeterminate="True" VerticalAlignment="Top" Height="2" Foreground="{DynamicResource PinkBrush}" />
+            <ProgressBar IsVisible="{Binding IsSearching}" IsIndeterminate="True" VerticalAlignment="Top" Height="2" Foreground="{DynamicResource AccentBrush}"/>
           </Grid>
         </Grid>
       </Border>
-
       <Border Grid.Column="2" Classes="panel">
         <Grid>
           <StackPanel IsVisible="{Binding HasNoSelectedRecord}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
-            <TextBlock Text="✧" Foreground="{DynamicResource CyanBrush}" FontSize="40" HorizontalAlignment="Center" />
-            <TextBlock Text="Choose a key" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" />
-            <TextBlock Text="Use ↑ ↓ and Enter, or click a candidate.&#10;值只在明确选择后加载。" Classes="muted" TextAlignment="Center" />
+            <TextBlock Text="✧" Foreground="{DynamicResource AccentStrongBrush}" FontSize="40" HorizontalAlignment="Center"/>
+            <TextBlock Text="{Binding L.ChooseKey}" Classes="heading" FontSize="18" HorizontalAlignment="Center"/>
+            <TextBlock Text="{Binding L.ChooseKeyHint}" Classes="muted" TextAlignment="Center"/>
           </StackPanel>
-
-          <ProgressBar IsVisible="{Binding IsLoadingRecord}" IsIndeterminate="True" Width="180" HorizontalAlignment="Center" VerticalAlignment="Center" />
-
+          <ProgressBar IsVisible="{Binding IsLoadingRecord}" IsIndeterminate="True" Width="180" HorizontalAlignment="Center" VerticalAlignment="Center"/>
           <Grid IsVisible="{Binding HasSelectedRecord}" RowDefinitions="Auto,Auto,*,Auto">
             <Grid ColumnDefinitions="*,Auto">
               <StackPanel>
-                <TextBlock Text="SELECTED RECORD" Classes="accent" FontSize="12" />
-                <TextBlock Text="{Binding RecordIdentity}" FontFamily="Cascadia Mono,Consolas,monospace" FontSize="22" FontWeight="SemiBold" Margin="0,5,0,0" TextWrapping="Wrap" />
-                <TextBlock Text="{Binding UpdatedText}" Classes="muted" FontSize="11" Margin="0,5,0,0" />
+                <TextBlock Text="{Binding L.SelectedRecord}" Classes="accent" FontSize="12"/>
+                <TextBlock Text="{Binding RecordIdentity}" Classes="heading" FontFamily="IBM Plex Mono,Cascadia Mono,Consolas,monospace" FontSize="20" Margin="0,5,0,0" TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding UpdatedText}" Classes="muted" FontSize="11" Margin="0,5,0,0"/>
               </StackPanel>
-              <Border Grid.Column="1" Background="{DynamicResource PinkSoftBrush}" CornerRadius="10" Padding="10,5" VerticalAlignment="Top">
-                <TextBlock Text="local only" Foreground="{DynamicResource PinkBrush}" FontSize="11" />
+              <Border Grid.Column="1" Background="{DynamicResource AccentWashBrush}" CornerRadius="10" Padding="10,5" VerticalAlignment="Top">
+                <TextBlock Text="{Binding L.LocalOnly}" Foreground="{DynamicResource AccentStrongBrush}" FontSize="11"/>
               </Border>
             </Grid>
-
-            <TextBlock Grid.Row="1" Text="VALUE" Classes="muted" FontSize="11" Margin="0,28,0,8" />
-            <Border Grid.Row="2" Background="#19151F" BorderBrush="#4C3E5D" BorderThickness="1" CornerRadius="12" Padding="16">
+            <TextBlock Grid.Row="1" Text="{Binding L.Value}" Classes="muted" FontSize="11" Margin="0,28,0,8"/>
+            <Border Grid.Row="2" Background="{DynamicResource RaisedBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="16">
               <ScrollViewer>
-                <TextBlock Text="{Binding DisplayValue}" FontFamily="Cascadia Mono,Consolas,monospace" FontSize="15" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding DisplayValue}" FontFamily="IBM Plex Mono,Cascadia Mono,Consolas,monospace" FontSize="15" TextWrapping="Wrap"/>
               </ScrollViewer>
             </Border>
-
             <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,18,0,0">
               <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button Content="Copy  Ctrl+C" Classes="primary" Command="{Binding CopyCommand}" />
-                <Button Content="{Binding RevealButtonText}" IsVisible="{Binding SelectedIsMasked}" Command="{Binding ToggleRevealCommand}" />
+                <Button Content="{Binding L.Copy}" Classes="primary" Command="{Binding CopyCommand}"/>
+                <Button Content="{Binding RevealButtonText}" IsVisible="{Binding SelectedIsMasked}" Command="{Binding ToggleRevealCommand}"/>
               </StackPanel>
               <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                <Button Content="Edit" Command="{Binding OpenEditRecordCommand}" />
-                <Button Content="Delete" Classes="danger" Command="{Binding OpenDeleteRecordCommand}" />
+                <Button Content="{Binding L.Edit}" Command="{Binding OpenEditRecordCommand}"/>
+                <Button Content="{Binding L.Delete}" Classes="danger" Command="{Binding OpenDeleteRecordCommand}"/>
               </StackPanel>
             </Grid>
           </Grid>
         </Grid>
       </Border>
     </Grid>
-
-    <Border Grid.RowSpan="3" IsVisible="{Binding IsScopeEditorOpen}" Background="#B0100D16" ZIndex="20">
+    <Border Grid.RowSpan="3" IsVisible="{Binding IsScopeEditorOpen}" Background="{DynamicResource OverlayBrush}" ZIndex="20">
       <Border Classes="panel" Width="480" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24" KeyboardNavigation.TabNavigation="Cycle">
         <StackPanel Spacing="14">
-          <TextBlock Text="{Binding ScopeEditorTitle}" FontSize="20" FontWeight="Bold" />
-          <TextBlock Text="名称按原样保存，大小写敏感。 / Preserved verbatim and case-sensitive." Classes="muted" TextWrapping="Wrap" />
-          <TextBox x:Name="ScopeNameBox" AutomationProperties.Name="Scope name" Text="{Binding ScopeNameInput}" PlaceholderText="scope name" />
+          <TextBlock Text="{Binding ScopeEditorTitle}" Classes="heading" FontSize="20"/>
+          <TextBlock Text="{Binding L.ScopeNameHint}" Classes="muted" TextWrapping="Wrap"/>
+          <TextBox x:Name="ScopeNameBox" Text="{Binding ScopeNameInput}" PlaceholderText="{Binding L.ScopeName}"/>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-            <Button Content="Cancel" Command="{Binding CloseModalCommand}" />
-            <Button Content="Save" Classes="primary" Command="{Binding SaveScopeCommand}" />
+            <Button Content="{Binding L.Cancel}" Command="{Binding CloseModalCommand}"/>
+            <Button Content="{Binding L.Save}" Classes="primary" Command="{Binding SaveScopeCommand}"/>
           </StackPanel>
         </StackPanel>
       </Border>
     </Border>
-
-    <Border Grid.RowSpan="3" IsVisible="{Binding IsScopeDeleteOpen}" Background="#B0100D16" ZIndex="20">
+    <Border Grid.RowSpan="3" IsVisible="{Binding IsScopeDeleteOpen}" Background="{DynamicResource OverlayBrush}" ZIndex="20">
       <Border Classes="panel" Width="510" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24" KeyboardNavigation.TabNavigation="Cycle">
         <StackPanel Spacing="16">
-          <TextBlock Text="Delete scope?" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource RedBrush}" />
-          <TextBlock Text="{Binding ScopeDeleteMessage}" TextWrapping="Wrap" />
-          <TextBlock Text="非空 scope 会进行明确的递归删除。 / A non-empty scope is deleted recursively only after this confirmation." Classes="muted" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding L.DeleteScopeTitle}" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource DangerBrush}"/>
+          <TextBlock Text="{Binding ScopeDeleteMessage}" TextWrapping="Wrap"/>
+          <TextBlock Text="{Binding L.DeleteScopeHint}" Classes="muted" TextWrapping="Wrap"/>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-            <Button Content="Cancel" Command="{Binding CloseModalCommand}" />
-            <Button x:Name="ScopeDeleteConfirmButton" Content="Delete exact scope" Classes="danger" Command="{Binding ConfirmDeleteScopeCommand}" />
+            <Button Content="{Binding L.Cancel}" Command="{Binding CloseModalCommand}"/>
+            <Button x:Name="ScopeDeleteConfirmButton" Content="{Binding L.DeleteExactScope}" Classes="danger" Command="{Binding ConfirmDeleteScopeCommand}"/>
           </StackPanel>
         </StackPanel>
       </Border>
     </Border>
-
-    <Border Grid.RowSpan="3" IsVisible="{Binding IsRecordEditorOpen}" Background="#B0100D16" ZIndex="20">
-      <Border Classes="panel" Width="610" MaxHeight="650" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24" KeyboardNavigation.TabNavigation="Cycle">
+    <Border Grid.RowSpan="3" IsVisible="{Binding IsRecordEditorOpen}" Background="{DynamicResource OverlayBrush}" ZIndex="20">
+      <Border Classes="panel" Width="630" MaxHeight="680" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24" KeyboardNavigation.TabNavigation="Cycle">
         <StackPanel Spacing="13">
-          <TextBlock Text="{Binding RecordEditorTitle}" FontSize="20" FontWeight="Bold" />
-          <TextBlock Text="KEY · case-sensitive identity" Classes="muted" FontSize="11" />
-          <TextBox x:Name="RecordKeyBox" AutomationProperties.Name="Record key" Text="{Binding EditorKey}" IsReadOnly="{Binding IsEditorKeyReadOnly}" PlaceholderText="record key" />
+          <TextBlock Text="{Binding RecordEditorTitle}" Classes="heading" FontSize="20"/>
+          <TextBlock Text="{Binding L.KeyLabel}" Classes="muted" FontSize="11"/>
+          <TextBox x:Name="RecordKeyBox" Text="{Binding EditorKey}" IsReadOnly="{Binding IsEditorKeyReadOnly}" PlaceholderText="{Binding L.KeyPlaceholder}"/>
           <Grid ColumnDefinitions="*,Auto">
-            <TextBlock Text="VALUE · saved only when you choose Save" Classes="muted" FontSize="11" VerticalAlignment="Center" />
-            <CheckBox Grid.Column="1" Content="Show while editing" IsChecked="{Binding EditorValueVisible}" IsVisible="{Binding EditorCanToggleVisibility}" />
+            <TextBlock Text="{Binding L.ValueLabel}" Classes="muted" FontSize="11" VerticalAlignment="Center"/>
+            <CheckBox Grid.Column="1" Content="{Binding L.ShowWhileEditing}" IsChecked="{Binding EditorValueVisible}"/>
           </Grid>
-          <TextBox x:Name="RecordValueBox"
-                   AutomationProperties.Name="Record value"
-                   Text="{Binding EditorValue}"
-                   AcceptsReturn="True"
-                   TextWrapping="Wrap"
-                   PasswordChar="●"
-                   RevealPassword="{Binding EditorValueVisible}"
-                   MinHeight="180"
-                   MaxHeight="330"
-                   ScrollViewer.VerticalScrollBarVisibility="Auto" />
-          <CheckBox Content="Masked presentation · 默认隐藏并尝试清理剪贴板" IsChecked="{Binding EditorIsMasked}" />
-          <Border IsVisible="{Binding HasError}"
-                  AutomationProperties.Name="Record save error"
-                  AutomationProperties.LiveSetting="Assertive"
-                  Background="#422735"
-                  BorderBrush="{DynamicResource RedBrush}"
-                  BorderThickness="1"
-                  CornerRadius="10"
-                  Padding="12,8">
+          <TextBox x:Name="RecordValueBox" Text="{Binding EditorValue}" AcceptsReturn="True" TextWrapping="Wrap" PasswordChar="●" RevealPassword="{Binding EditorValueVisible}" MinHeight="180" MaxHeight="330" ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+          <Border Background="{DynamicResource MutedSurfaceBrush}" CornerRadius="10" Padding="12">
+            <StackPanel Spacing="8">
+              <TextBlock Text="{Binding L.DefaultDisplay}" FontWeight="SemiBold"/>
+              <RadioButton GroupName="RecordPresentation" IsChecked="{Binding EditorIsMasked}" HorizontalContentAlignment="Stretch">
+                <StackPanel Spacing="2" Margin="8,0,0,0">
+                  <TextBlock Text="{Binding L.MaskedTitle}" FontWeight="SemiBold"/>
+                  <TextBlock Text="{Binding L.MaskedHint}" Classes="muted" TextWrapping="Wrap"/>
+                </StackPanel>
+              </RadioButton>
+              <RadioButton GroupName="RecordPresentation" IsChecked="{Binding EditorIsPlain}" HorizontalContentAlignment="Stretch">
+                <StackPanel Spacing="2" Margin="8,0,0,0">
+                  <TextBlock Text="{Binding L.VisibleTitle}" FontWeight="SemiBold"/>
+                  <TextBlock Text="{Binding L.VisibleHint}" Classes="muted"/>
+                </StackPanel>
+              </RadioButton>
+              <TextBlock Text="{Binding L.EncryptionInvariant}" Classes="muted" FontStyle="Italic"/>
+            </StackPanel>
+          </Border>
+          <Border IsVisible="{Binding HasError}" Background="{DynamicResource AccentWashBrush}" BorderBrush="{DynamicResource DangerBrush}" BorderThickness="1" CornerRadius="10" Padding="12,8">
             <StackPanel>
-              <TextBlock Text="{Binding ErrorTitle}" Foreground="{DynamicResource RedBrush}" FontWeight="SemiBold" />
-              <TextBlock Text="{Binding ErrorMessage}" Classes="muted" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding ErrorTitle}" Foreground="{DynamicResource DangerBrush}" FontWeight="SemiBold"/>
+              <TextBlock Text="{Binding ErrorMessage}" Classes="muted" TextWrapping="Wrap"/>
             </StackPanel>
           </Border>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-            <Button Content="Cancel" Command="{Binding CloseModalCommand}" />
-            <Button Content="Save explicitly" Classes="primary" Command="{Binding SaveRecordCommand}" />
+            <Button Content="{Binding L.Cancel}" Command="{Binding CloseModalCommand}"/>
+            <Button Content="{Binding L.SaveRecord}" Classes="primary" Command="{Binding SaveRecordCommand}"/>
           </StackPanel>
         </StackPanel>
       </Border>
     </Border>
-
-    <Border Grid.RowSpan="3" IsVisible="{Binding IsRecordDeleteOpen}" Background="#B0100D16" ZIndex="20">
+    <Border Grid.RowSpan="3" IsVisible="{Binding IsRecordDeleteOpen}" Background="{DynamicResource OverlayBrush}" ZIndex="20">
       <Border Classes="panel" Width="520" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24" KeyboardNavigation.TabNavigation="Cycle">
         <StackPanel Spacing="16">
-          <TextBlock Text="Delete record?" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource RedBrush}" />
-          <TextBlock Text="{Binding RecordDeleteMessage}" TextWrapping="Wrap" FontFamily="Cascadia Mono,Consolas,monospace" />
+          <TextBlock Text="{Binding L.DeleteRecordTitle}" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource DangerBrush}"/>
+          <TextBlock Text="{Binding RecordDeleteMessage}" TextWrapping="Wrap" FontFamily="IBM Plex Mono,Cascadia Mono,Consolas,monospace"/>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-            <Button Content="Cancel" Command="{Binding CloseModalCommand}" />
-            <Button x:Name="RecordDeleteConfirmButton" Content="Delete exact record" Classes="danger" Command="{Binding ConfirmDeleteRecordCommand}" />
+            <Button Content="{Binding L.Cancel}" Command="{Binding CloseModalCommand}"/>
+            <Button x:Name="RecordDeleteConfirmButton" Content="{Binding L.DeleteExactRecord}" Classes="danger" Command="{Binding ConfirmDeleteRecordCommand}"/>
           </StackPanel>
         </StackPanel>
       </Border>
     </Border>
-
-    <Border Grid.RowSpan="3"
-            IsVisible="{Binding HasToast}"
-            AutomationProperties.Name="Scrap notification"
-            AutomationProperties.LiveSetting="Polite"
-            Background="#E63A304B"
-            BorderBrush="{DynamicResource PurpleBrush}"
-            BorderThickness="1"
-            CornerRadius="12"
-            Padding="16,10"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Bottom"
-            Margin="20"
-            ZIndex="30">
-      <TextBlock Text="{Binding ToastMessage}" FontWeight="SemiBold" />
+    <Border Grid.RowSpan="3" IsVisible="{Binding HasToast}" Background="{DynamicResource RaisedBrush}" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="10" Padding="16,10" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="20" ZIndex="30">
+      <TextBlock Text="{Binding ToastMessage}" FontWeight="SemiBold"/>
     </Border>
   </Grid>
 </Window>

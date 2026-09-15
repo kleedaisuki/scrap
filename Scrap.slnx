@@ -11,8 +11,10 @@
     <Project Path="src/Scrap.Storage.Sqlite/Scrap.Storage.Sqlite.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Scrap.Cli.Tests/Scrap.Cli.Tests.csproj" />
     <Project Path="tests/Scrap.Daemon.Tests/Scrap.Daemon.Tests.csproj" />
     <Project Path="tests/Scrap.Domain.Tests/Scrap.Domain.Tests.csproj" />
+    <Project Path="tests/Scrap.Gui.Tests/Scrap.Gui.Tests.csproj" />
     <Project Path="tests/Scrap.Integration.Tests/Scrap.Integration.Tests.csproj" />
     <Project Path="tests/Scrap.Protocol.Tests/Scrap.Protocol.Tests.csproj" />
     <Project Path="tests/Scrap.Storage.Tests/Scrap.Storage.Tests.csproj" />

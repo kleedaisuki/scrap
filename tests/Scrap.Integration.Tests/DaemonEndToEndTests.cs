@@ -111,17 +111,17 @@ public sealed class DaemonEndToEndTests
         Assert.Null(allRecords.NextCursor);
 
         RecordSearchResult exact = await client.SearchRecordsAsync(new(
-            renamedScope,
+            [renamedScope],
             "api",
             ProtocolSearchMode.Exact,
             ProtocolCaseSensitivity.Sensitive));
         RecordSearchResult fuzzy = await client.SearchRecordsAsync(new(
-            renamedScope,
+            [renamedScope],
             "api",
             ProtocolSearchMode.Fuzzy,
             ProtocolCaseSensitivity.Sensitive));
         RecordSearchResult regex = await client.SearchRecordsAsync(new(
-            renamedScope,
+            [renamedScope],
             "(?<=api-)token$",
             ProtocolSearchMode.Regex,
             ProtocolCaseSensitivity.Sensitive));

@@ -268,20 +268,28 @@ internal sealed class SqliteDaemonOperations : IDaemonOperations, IDisposable
     {
         EnsureReady(cancellationToken);
         DomainSearchRequest request = DomainSearchRequest.TryCreate(
-            parameters.Scope,
+            parameters.Scopes,
             parameters.Query,
             (DomainSearchMode)parameters.Mode,
             (DomainCaseSensitivity)parameters.CaseSensitivity,
             parameters.Limit).Value;
         cancellationToken.ThrowIfCancellationRequested();
-        IReadOnlyList<StoredRecordMetadata> metadata = store.ListAllRecordMetadata(parameters.Scope);
+        IReadOnlyList<StoredRecordMetadata> metadata = store.ListAllRecordMetadata(
+            request.Scopes.Select(scope => scope.Value).ToArray());
         IReadOnlyList<SearchMatch> matches = RecordSearch.Search(
-            metadata.Select(item => RecordKey.Create(item.Identity.Key)),
+            metadata.Select(item => new SearchCandidate(
+                ScopeName.Create(item.Identity.ScopeName),
+                RecordKey.Create(item.Identity.Key))),
             request,
             cancellationToken).Value;
         cancellationToken.ThrowIfCancellationRequested();
-        var byKey = metadata.ToDictionary(item => item.Identity.Key, StringComparer.Ordinal);
-        RecordSummaryDto[] results = matches.Select(match => ToSummary(byKey[match.Key.Value])).ToArray();
+        var byIdentity = metadata.ToDictionary(
+            item => (item.Identity.ScopeName, item.Identity.Key));
+        RecordSummaryDto[] results = matches
+            .Select(match => ToSummary(byIdentity[(
+                match.Candidate.Scope.Value,
+                match.Candidate.Key.Value)]))
+            .ToArray();
         return Task.FromResult(new RecordSearchResult(results));
     }
 

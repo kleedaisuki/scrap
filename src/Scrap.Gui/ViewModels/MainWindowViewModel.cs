@@ -3,6 +3,7 @@ using System.Windows.Input;
 using Scrap.Gui.Abstractions;
 using Scrap.Gui.Infrastructure;
 using Scrap.Gui.Models;
+using Scrap.Gui.Services;
 
 namespace Scrap.Gui.ViewModels;
 
@@ -27,6 +28,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private readonly TimeSpan _revealDuration;
     private readonly TimeSpan _clipboardDuration;
     private readonly TimeSpan _mutationDeadline;
+    private readonly UserPreferenceStore _preferenceStore;
+    private readonly Action<AppTheme> _applyTheme;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly SemaphoreSlim _mutationLifetimeGate = new(1, 1);
     private readonly SemaphoreSlim _clipboardLifetimeGate = new(1, 1);
@@ -41,6 +44,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private string _searchText = string.Empty;
     private SearchMode _selectedMode = SearchMode.Fuzzy;
     private bool _caseSensitive;
+    private SearchCoverage _searchCoverage = SearchCoverage.AllScopes;
+    private AppTheme _selectedTheme;
+    private AppLanguage _selectedLanguage;
+    private LocalizationStrings _localization;
     private bool _isSearching;
     private bool _isLoadingScopes;
     private bool _isLoadingRecord;
@@ -91,7 +98,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         TimeSpan? debounce = null,
         TimeSpan? revealDuration = null,
         TimeSpan? clipboardDuration = null,
-        TimeSpan? mutationDeadline = null)
+        TimeSpan? mutationDeadline = null,
+        UserPreferenceStore? preferenceStore = null,
+        Action<AppTheme>? applyTheme = null)
     {
         _client = client;
         _clipboard = clipboard;
@@ -100,6 +109,14 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         _revealDuration = revealDuration ?? DefaultRevealDuration;
         _clipboardDuration = clipboardDuration ?? DefaultClipboardDuration;
         _mutationDeadline = mutationDeadline ?? DefaultMutationDeadline;
+        _preferenceStore = preferenceStore ?? new UserPreferenceStore();
+        _applyTheme = applyTheme ?? (_ => { });
+        UserPreferences preferences = _preferenceStore.Load();
+        _selectedTheme = preferences.Theme;
+        _selectedLanguage = preferences.Language;
+        _localization = LocalizationStrings.For(_selectedLanguage);
+        RebuildLocalizedChoices();
+        _applyTheme(_selectedTheme);
 
         RetryCommand = new AsyncRelayCommand(
             RetryRefreshAsync,
@@ -125,6 +142,73 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     /// <summary>由 daemon 排序的 key 候选。Key candidates ranked by the daemon.</summary>
     public ObservableCollection<RecordCandidate> Candidates { get; } = [];
+
+    /// <summary>本地化的检索范围选项。Localized search-coverage choices.</summary>
+    public ObservableCollection<LocalizedChoice<SearchCoverage>> SearchCoverageChoices { get; } = [];
+
+    /// <summary>本地化的主题选项。Localized theme choices.</summary>
+    public ObservableCollection<LocalizedChoice<AppTheme>> ThemeChoices { get; } = [];
+
+    /// <summary>本地化的语言选项。Localized language choices.</summary>
+    public ObservableCollection<LocalizedChoice<AppLanguage>> LanguageChoices { get; } = [];
+
+    /// <summary>当前语言的完整文案。Complete copy for the active language.</summary>
+    public LocalizationStrings L => _localization;
+
+    /// <summary>当前检索覆盖范围。Current search coverage.</summary>
+    public LocalizedChoice<SearchCoverage>? SelectedSearchCoverage
+    {
+        get => SearchCoverageChoices.FirstOrDefault(choice => choice.Value == _searchCoverage);
+        set
+        {
+            if (value is null || value.Value == _searchCoverage)
+            {
+                return;
+            }
+
+            _searchCoverage = value.Value;
+            OnPropertyChanged();
+            SelectedCandidate = null;
+            _ = ScheduleSearchAsync(immediate: true);
+        }
+    }
+
+    /// <summary>持久化的主题选择。Persisted theme selection.</summary>
+    public LocalizedChoice<AppTheme>? SelectedTheme
+    {
+        get => ThemeChoices.FirstOrDefault(choice => choice.Value == _selectedTheme);
+        set
+        {
+            if (value is null || value.Value == _selectedTheme)
+            {
+                return;
+            }
+
+            _selectedTheme = value.Value;
+            OnPropertyChanged();
+            _applyTheme(_selectedTheme);
+            PersistPreferences();
+        }
+    }
+
+    /// <summary>持久化的界面语言。Persisted user-interface language.</summary>
+    public LocalizedChoice<AppLanguage>? SelectedLanguage
+    {
+        get => LanguageChoices.FirstOrDefault(choice => choice.Value == _selectedLanguage);
+        set
+        {
+            if (value is null || value.Value == _selectedLanguage)
+            {
+                return;
+            }
+
+            _selectedLanguage = value.Value;
+            _localization = LocalizationStrings.For(_selectedLanguage);
+            RebuildLocalizedChoices();
+            NotifyLocalizedProperties();
+            PersistPreferences();
+        }
+    }
 
     /// <summary>当前 scope；变化时只在该 scope 内重新搜索。Current scope; changes trigger search only within that scope.</summary>
     public ScopeSummary? SelectedScope
@@ -324,8 +408,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     /// <summary>scope 选择器辅助文本。Scope selector helper text.</summary>
     public string ScopeStatus => SelectedScope is null
-        ? "选择一个 scope / Choose a scope"
-        : $"{SelectedScope.RecordCount} records";
+        ? L.ChooseScope
+        : L.RecordCount(SelectedScope.RecordCount);
 
     /// <summary>搜索表达式附近的结构化错误。Structured error shown beside the search expression.</summary>
     public string? SearchError
@@ -396,17 +480,17 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     }
 
     /// <summary>显示/隐藏按钮文字。Reveal/hide button text.</summary>
-    public string RevealButtonText => IsRevealed ? "隐藏 Hide" : "显示 Reveal";
+    public string RevealButtonText => IsRevealed ? L.Hide : L.Reveal;
 
     /// <summary>准确的选中记录身份。Exact identity of the selected record.</summary>
     public string RecordIdentity => SelectedRecord is null
         ? string.Empty
-        : $"scope “{SelectedRecord.Scope}”  ·  key “{SelectedRecord.Key}”";
+        : L.RecordIdentity(SelectedRecord.Scope, SelectedRecord.Key);
 
     /// <summary>适合 UI 的修改时间。Modification time suitable for UI.</summary>
     public string UpdatedText => SelectedRecord is null
         ? string.Empty
-        : $"Updated {SelectedRecord.UpdatedAt.ToLocalTime():yyyy-MM-dd HH:mm}";
+        : L.Updated(SelectedRecord.UpdatedAt);
 
     /// <summary>scope 编辑层是否打开。Whether the scope editor overlay is open.</summary>
     public bool IsScopeEditorOpen
@@ -459,9 +543,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     /// <summary>准确的 scope 删除确认文案。Exact scope deletion confirmation.</summary>
     public string ScopeDeleteMessage => _scopeDeleteTarget is null
         ? string.Empty
-        : _scopeDeleteTarget.RecordCount == 0
-            ? $"删除 scope “{_scopeDeleteTarget.Name}”？ / Delete this scope?"
-            : $"删除 scope “{_scopeDeleteTarget.Name}”及其中 {_scopeDeleteTarget.RecordCount} 条记录？ / Delete this scope and all records?";
+        : L.DeleteScope(_scopeDeleteTarget.Name, _scopeDeleteTarget.RecordCount);
 
     /// <summary>记录编辑层是否打开。Whether the record editor overlay is open.</summary>
     public bool IsRecordEditorOpen
@@ -478,7 +560,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     }
 
     /// <summary>记录编辑标题。Record editor title.</summary>
-    public string RecordEditorTitle => _isEditingRecord ? "编辑记录 / Edit record" : "新建记录 / New record";
+    public string RecordEditorTitle => _isEditingRecord ? L.EditRecordTitle : L.CreateRecordTitle;
 
     /// <summary>编辑器 key；编辑已有记录时不可改名。Editor key; existing records cannot be renamed here.</summary>
     public string EditorKey
@@ -508,8 +590,20 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         {
             if (SetProperty(ref _editorIsMasked, value))
             {
-                EditorValueVisible = !value;
-                OnPropertyChanged(nameof(EditorCanToggleVisibility));
+                OnPropertyChanged(nameof(EditorIsPlain));
+            }
+        }
+    }
+
+    /// <summary>保存后直接显示；仅是遮罩呈现策略的互补选项。Visible after saving; the complementary presentation-policy option.</summary>
+    public bool EditorIsPlain
+    {
+        get => !EditorIsMasked;
+        set
+        {
+            if (value)
+            {
+                EditorIsMasked = false;
             }
         }
     }
@@ -522,7 +616,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     }
 
     /// <summary>编辑器是否允许切换 value 可见性。Whether editor value visibility can be toggled.</summary>
-    public bool EditorCanToggleVisibility => EditorIsMasked;
+    public bool EditorCanToggleVisibility => EditorValue is not null;
 
     /// <summary>编辑已有记录时是否锁定 key。Whether key editing is locked for an existing record.</summary>
     public bool IsEditorKeyReadOnly => _isEditingRecord;
@@ -547,7 +641,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     /// <summary>准确的记录删除确认文案。Exact record deletion confirmation.</summary>
     public string RecordDeleteMessage => _recordDeleteTarget is null
         ? string.Empty
-        : $"删除 scope “{_recordDeleteTarget.Scope}”中的 key “{_recordDeleteTarget.Key}”？此操作不可撤销。 / Delete this exact record?";
+        : L.DeleteRecord(_recordDeleteTarget.Scope, _recordDeleteTarget.Key);
 
     /// <summary>mutation 是否进行中。Whether a mutation is running.</summary>
     public bool IsBusy
@@ -734,13 +828,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
                 await Task.Delay(_debounce, _timeProvider, cancellation.Token);
             }
 
-            var request = new RecordSearchRequest(
-                SelectedScope.Name,
-                SearchText,
-                SelectedMode,
-                CaseSensitive,
-                DefaultSearchLimit);
-            IReadOnlyList<RecordCandidate> results = await _client.SearchAsync(request, cancellation.Token);
+            IReadOnlyList<RecordCandidate> results = await SearchSelectedScopesAsync(cancellation.Token);
 
             if (revision != Volatile.Read(ref _searchRevision) || cancellation.IsCancellationRequested)
             {
@@ -768,7 +856,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
                 Candidates.Clear();
                 if (exception is ScrapClientException { Kind: ScrapClientErrorKind.InvalidQuery })
                 {
-                    SearchError = exception.Message;
+                    SearchError = L.InvalidSearch;
                 }
                 else
                 {
@@ -788,6 +876,20 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         return succeeded;
     }
 
+    private async Task<IReadOnlyList<RecordCandidate>> SearchSelectedScopesAsync(CancellationToken cancellationToken)
+    {
+        IReadOnlyList<string> scopes = _searchCoverage == SearchCoverage.AllScopes
+            ? []
+            : SelectedScope is null ? [] : [SelectedScope.Name];
+        var request = new RecordSearchRequest(
+            scopes,
+            SearchText,
+            SelectedMode,
+            CaseSensitive,
+            DefaultSearchLimit);
+        return await _client.SearchAsync(request, cancellationToken);
+    }
+
     private async Task LoadSelectedRecordAsync()
     {
         long revision = Interlocked.Increment(ref _detailRevision);
@@ -797,9 +899,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         previous?.Dispose();
 
         RecordCandidate? candidate = SelectedCandidate;
-        ScopeSummary? scope = SelectedScope;
         SelectedRecord = null;
-        if (candidate is null || scope is null)
+        if (candidate is null)
         {
             IsLoadingRecord = false;
             return;
@@ -808,7 +909,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         IsLoadingRecord = true;
         try
         {
-            RecordDetails record = await _client.GetRecordAsync(scope.Name, candidate.Key, cancellation.Token);
+            RecordDetails record = await _client.GetRecordAsync(candidate.Scope, candidate.Key, cancellation.Token);
             if (revision == Volatile.Read(ref _detailRevision) && !cancellation.IsCancellationRequested)
             {
                 SelectedRecord = record;
@@ -840,7 +941,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         CloseModals();
         _isRenamingScope = false;
         _scopeEditorOriginalName = null;
-        ScopeEditorTitle = "新建 scope / New scope";
+        ScopeEditorTitle = L.CreateScopeTitle;
         ScopeNameInput = string.Empty;
         IsScopeEditorOpen = true;
         NotifyCommandStates();
@@ -856,7 +957,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         CloseModals();
         _isRenamingScope = true;
         _scopeEditorOriginalName = SelectedScope.Name;
-        ScopeEditorTitle = "重命名 scope / Rename scope";
+        ScopeEditorTitle = L.RenameScopeTitle;
         ScopeNameInput = SelectedScope.Name;
         IsScopeEditorOpen = true;
         NotifyCommandStates();
@@ -942,7 +1043,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
             CompleteMutationRefresh(
                 refreshed,
-                isRename ? "Scope 已重命名 / Scope renamed" : "Scope 已创建 / Scope created");
+                isRename ? L.ScopeRenamed : L.ScopeCreated);
         }
         catch (Exception exception)
         {
@@ -977,7 +1078,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
                 mutationCancellation.Token);
             CloseModals();
             bool refreshed = await LoadScopesAsync();
-            CompleteMutationRefresh(refreshed, "Scope 已删除 / Scope deleted");
+            CompleteMutationRefresh(refreshed, L.ScopeDeleted);
         }
         catch (Exception exception)
         {
@@ -986,8 +1087,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             if (mutationError is ScrapClientException { Kind: ScrapClientErrorKind.Conflict })
             {
                 CloseModals();
-                ErrorMessage = "Scope 内容在确认后发生变化，未执行删除。请重新打开删除确认并核对最新数量。 / " +
-                    "The scope changed after confirmation, so nothing was deleted. Reopen deletion and review the latest count.";
+                ErrorMessage = L.ScopeChangedBody;
             }
             else if (mutationError is ScrapClientException { Kind: ScrapClientErrorKind.OutcomeUnknown })
             {
@@ -1090,12 +1190,14 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             bool countRefreshed = await RefreshScopeCountAsync(editorScope);
             if (searchRefreshed && countRefreshed)
             {
-                SelectedCandidate = Candidates.FirstOrDefault(candidate => string.Equals(candidate.Key, key, StringComparison.Ordinal));
+                SelectedCandidate = Candidates.FirstOrDefault(candidate =>
+                    string.Equals(candidate.Scope, editorScope, StringComparison.Ordinal) &&
+                    string.Equals(candidate.Key, key, StringComparison.Ordinal));
             }
 
             CompleteMutationRefresh(
                 searchRefreshed && countRefreshed,
-                isEdit ? "记录已保存 / Record saved" : "记录已创建 / Record created");
+                isEdit ? L.RecordSaved : L.RecordCreated);
         }
         catch (Exception exception)
         {
@@ -1127,7 +1229,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             SelectedCandidate = null;
             bool searchRefreshed = await ScheduleSearchAsync(immediate: true);
             bool countRefreshed = await RefreshScopeCountAsync(record.Scope);
-            CompleteMutationRefresh(searchRefreshed && countRefreshed, "记录已删除 / Record deleted");
+            CompleteMutationRefresh(searchRefreshed && countRefreshed, L.RecordDeleted);
         }
         catch (Exception exception)
         {
@@ -1233,7 +1335,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             }
 
             ClearError();
-            ShowToast("已复制 / Copied");
+            ShowToast(L.Copied);
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
@@ -1241,8 +1343,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
         catch (Exception)
         {
-            ErrorTitle = "剪贴板不可用 / Clipboard unavailable";
-            ErrorMessage = "无法访问系统剪贴板，请重试。 / The system clipboard could not be accessed; please retry.";
+            ErrorTitle = L.ClipboardUnavailableTitle;
+            ErrorMessage = L.ClipboardUnavailableBody;
             return;
         }
         finally
@@ -1403,9 +1505,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             return;
         }
 
-        ErrorTitle = "操作已完成，但刷新失败 / Saved, refresh failed";
-        ErrorMessage = "变更已经提交，但界面可能仍是旧状态。请选择 Retry 重新读取 daemon 状态；不要重复提交 mutation。 / " +
-            "The change was committed, but the view may be stale. Choose Retry to reload daemon state; do not repeat the mutation.";
+        ErrorTitle = L.RefreshFailedTitle;
+        ErrorMessage = L.RefreshFailedBody;
     }
 
     private void HandleRecordSaveError(Exception exception, bool isEdit)
@@ -1414,9 +1515,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         SetError(mutationError);
         if (mutationError is ScrapClientException { Kind: ScrapClientErrorKind.Conflict })
         {
-            ErrorMessage = isEdit
-                ? "记录已被其他 client 修改。编辑内容仍保留；请刷新后重新核对。 / The record changed in another client. Your draft is preserved; refresh and review it."
-                : "该 key 已存在，未覆盖原记录。请使用其他 key，或取消后刷新。 / That key already exists; the record was not overwritten. Choose another key or cancel and refresh.";
+            ErrorMessage = isEdit ? L.RecordConflictEdit : L.RecordConflictCreate;
         }
         else if (mutationError is ScrapClientException { Kind: ScrapClientErrorKind.OutcomeUnknown })
         {
@@ -1424,10 +1523,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
     }
 
-    private static Exception NormalizeMutationError(Exception exception) => exception is OperationCanceledException
+    private Exception NormalizeMutationError(Exception exception) => exception is OperationCanceledException
         ? new ScrapClientException(
             ScrapClientErrorKind.OutcomeUnknown,
-            "等待 mutation 完成已超时，最终结果未知。请刷新核对，不要盲目重试。 / The mutation timed out and its final outcome is unknown. Refresh to verify before retrying.",
+            L.MutationTimedOut,
             exception)
         : exception;
 
@@ -1436,24 +1535,15 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         SearchError = null;
         if (exception is ScrapClientException clientException)
         {
-            ErrorTitle = clientException.Kind switch
-            {
-                ScrapClientErrorKind.DaemonUnavailable => "scrapd 未连接 / Not connected",
-                ScrapClientErrorKind.KeyProviderUnavailable => "密钥服务不可用 / Key provider unavailable",
-                ScrapClientErrorKind.CorruptStore => "存储需要处理 / Store needs attention",
-                ScrapClientErrorKind.StoreUnavailable => "存储不可用 / Store unavailable",
-                ScrapClientErrorKind.Conflict => "记录冲突 / Record conflict",
-                ScrapClientErrorKind.NotFound => "记录已变化 / Item changed",
-                ScrapClientErrorKind.OutcomeUnknown => "结果未知 / Outcome unknown",
-                _ => "操作失败 / Operation failed",
-            };
-            ErrorMessage = clientException.Message;
+            ErrorTitle = L.ErrorTitle(clientException.Kind);
+            ErrorMessage = clientException.Kind == ScrapClientErrorKind.OutcomeUnknown
+                ? clientException.Message
+                : L.GenericErrorBody;
         }
         else
         {
-            ErrorTitle = "操作失败 / Operation failed";
-            ErrorMessage = "未能完成操作。请重试；若问题持续，请检查 scrapd 日志。 / " +
-                "The operation could not be completed. Retry, then inspect scrapd logs if it persists.";
+            ErrorTitle = L.ErrorTitle(ScrapClientErrorKind.Unknown);
+            ErrorMessage = L.GenericErrorBody;
         }
     }
 
@@ -1484,6 +1574,43 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             // Replaced toast or shutdown.
         }
     }
+
+    private void RebuildLocalizedChoices()
+    {
+        SearchCoverageChoices.Clear();
+        SearchCoverageChoices.Add(new(SearchCoverage.CurrentScope, L.CurrentScope));
+        SearchCoverageChoices.Add(new(SearchCoverage.AllScopes, L.AllScopes));
+
+        ThemeChoices.Clear();
+        ThemeChoices.Add(new(AppTheme.System, L.SystemTheme));
+        ThemeChoices.Add(new(AppTheme.Light, L.LightTheme));
+        ThemeChoices.Add(new(AppTheme.Dark, L.DarkTheme));
+
+        LanguageChoices.Clear();
+        LanguageChoices.Add(new(AppLanguage.SimplifiedChinese, L.Chinese));
+        LanguageChoices.Add(new(AppLanguage.English, L.English));
+    }
+
+    private void NotifyLocalizedProperties()
+    {
+        ScopeEditorTitle = _isRenamingScope ? L.RenameScopeTitle : L.CreateScopeTitle;
+        ClearError();
+        ToastMessage = null;
+        OnPropertyChanged(nameof(L));
+        OnPropertyChanged(nameof(SelectedLanguage));
+        OnPropertyChanged(nameof(SelectedTheme));
+        OnPropertyChanged(nameof(SelectedSearchCoverage));
+        OnPropertyChanged(nameof(ScopeStatus));
+        OnPropertyChanged(nameof(ScopeDeleteMessage));
+        OnPropertyChanged(nameof(RecordEditorTitle));
+        OnPropertyChanged(nameof(RecordDeleteMessage));
+        OnPropertyChanged(nameof(RevealButtonText));
+        OnPropertyChanged(nameof(RecordIdentity));
+        OnPropertyChanged(nameof(UpdatedText));
+    }
+
+    private void PersistPreferences() =>
+        _preferenceStore.Save(new UserPreferences(_selectedTheme, _selectedLanguage));
 
     private void NotifyCollectionState()
     {
