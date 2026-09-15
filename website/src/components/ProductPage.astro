@@ -1,0 +1,130 @@
+---
+import type { Locale, SiteCopy } from "../lib/content";
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+interface Props {
+  locale: Locale;
+  copy: SiteCopy;
+}
+
+const { locale, copy } = Astro.props;
+const releaseUrl = "https://github.com/kleedaisuki/scrap/releases/latest";
+---
+
+<BaseLayout {locale} {copy}>
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="hero-copy">
+      <p class="eyebrow">{copy.hero.eyebrow}</p>
+      <h1 id="hero-title">{copy.hero.title}</h1>
+      <p class="hero-lead">{copy.hero.lead}</p>
+      <div class="hero-actions">
+        <a class="button primary" href={releaseUrl}>{copy.hero.primary}<span aria-hidden="true">↗</span></a>
+        <a class="button secondary" href="#download">{copy.hero.secondary}</a>
+      </div>
+      <p class="availability"><span aria-hidden="true"></span>{copy.hero.availability}</p>
+    </div>
+    <div class="product-window" aria-label={locale === "zh" ? "scrap 桌面端界面预览" : "Preview of the scrap desktop app"}>
+      <div class="window-bar">
+        <span class="window-brand"><img src="/scrap-icon-32.png" alt="" width="24" height="24" />scrap</span>
+        <span class="window-controls" aria-hidden="true">—　□　×</span>
+      </div>
+      <div class="window-body">
+        <div class="scope-row">
+          <span>{copy.demo.scope}</span>
+          <span class="mock-control">{copy.demo.scopes[0]} <span aria-hidden="true">⌄</span></span>
+        </div>
+        <div class="scope-chips" aria-hidden="true">
+          {copy.demo.scopes.slice(1).map((scope, index) => <span class:list={{ active: index < 2 }}>{scope}</span>)}
+        </div>
+        <div class="search-row">
+          <span class="search-box"><span aria-hidden="true">⌕</span>{copy.demo.search}</span>
+          <span class="mode-pill">{copy.demo.mode}</span>
+        </div>
+        <div class="record-grid">
+          <div class="record-list">
+            {copy.demo.keys.map((key, index) => (
+              <div class:list={["record-item", { selected: index === 0 }]}>
+                <span class="record-key">{key}</span>
+                <span class="record-scope">{index === 2 ? "staging" : index === 1 ? "github" : "cloudflare"}</span>
+              </div>
+            ))}
+          </div>
+          <div class="record-detail">
+            <span class="detail-label">{copy.demo.selected}</span>
+            <strong>{copy.demo.value}</strong>
+            <div class="detail-actions">
+              <span>{copy.demo.copy}</span>
+              <span>{copy.demo.reveal}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="trust-strip" aria-label={locale === "zh" ? "产品要点" : "Product highlights"}>
+    <span>{locale === "zh" ? "本地优先" : "Local-first"}</span>
+    <span>{locale === "zh" ? "静态加密" : "Encrypted at rest"}</span>
+    <span>GUI + CLI</span>
+    <span>{locale === "zh" ? "开放源代码" : "Open source"}</span>
+  </div>
+
+  <section class="problem-band">
+    <div>
+      <p class="section-kicker">{copy.problem.kicker}</p>
+      <h2>{copy.problem.title}</h2>
+    </div>
+    <p>{copy.problem.body}</p>
+  </section>
+
+  <section id="features" class="features section-shell" aria-labelledby="features-title">
+    <h2 id="features-title" class="sr-only">{copy.nav.features}</h2>
+    <div class="feature-grid">
+      {copy.features.map((feature, index) => (
+        <article class:list={["feature-card", { wide: index === 0 || index === 3 }]}>
+          <div class="feature-top"><span>{feature.number}</span><span>{feature.tag}</span></div>
+          <h3>{feature.title}</h3>
+          <p>{feature.body}</p>
+        </article>
+      ))}
+    </div>
+  </section>
+
+  <section id="architecture" class="architecture section-shell" aria-labelledby="architecture-title">
+    <div class="architecture-copy">
+      <p class="section-kicker">{copy.architecture.kicker}</p>
+      <h2 id="architecture-title">{copy.architecture.title}</h2>
+      <p>{copy.architecture.body}</p>
+    </div>
+    <div class="architecture-map" role="img" aria-label={copy.architecture.nodes.join(" to ")}>
+      {copy.architecture.nodes.map((node, index) => (
+        <>
+          <span class:list={["architecture-node", { daemon: index === 2 }]}>{node}</span>
+          {index < copy.architecture.nodes.length - 1 && <span class="connector" aria-hidden="true">→</span>}
+        </>
+      ))}
+    </div>
+    <div class="architecture-notes">
+      {copy.architecture.notes.map((note) => <article><h3>{note.title}</h3><p>{note.body}</p></article>)}
+    </div>
+  </section>
+
+  <section id="download" class="download-section section-shell" aria-labelledby="download-title">
+    <div class="download-heading">
+      <p class="section-kicker">{copy.download.kicker}</p>
+      <h2 id="download-title">{copy.download.title}</h2>
+      <p>{copy.download.body}</p>
+    </div>
+    <div class="platform-grid">
+      {copy.download.platforms.map((platform, index) => (
+        <a class:list={["platform-card", { recommended: index === 0 }]} href={releaseUrl}>
+          <span class="platform-icon" aria-hidden="true">{index === 0 ? "⊞" : index === 1 ? "⌘" : "λ"}</span>
+          <strong>{platform.name}</strong>
+          <span>{platform.detail}</span>
+          <em>{platform.action} <span aria-hidden="true">↗</span></em>
+        </a>
+      ))}
+    </div>
+    <p class="download-note">{copy.download.footnote}</p>
+  </section>
+</BaseLayout>

@@ -1,6 +1,8 @@
 bin/
 obj/
 artifacts/
+.cache/
+.temp/
 .vs/
 .idea/
 *.user
@@ -14,3 +16,6 @@ coverage/
 *.db-wal
 .scrap/
 *-artifacts/
+node_modules/
+dist/
+.astro/

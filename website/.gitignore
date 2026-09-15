@@ -1,0 +1,5 @@
+# Generated dependencies and Astro output. / 生成的依赖与 Astro 构建输出。
+node_modules/
+dist/
+.astro/
+.sites-runtime/
