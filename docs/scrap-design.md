@@ -156,7 +156,7 @@ GUI 中一次 record 搜索表达为：
 
 ```text
 SearchRequest
-├── scope
+├── scopes: [] | [scope, ...]
 ├── query
 ├── mode: exact | fuzzy | regex
 ├── case_sensitivity: insensitive | sensitive
@@ -165,13 +165,13 @@ SearchRequest
 
 `case_sensitivity` 是匹配修饰符，不与三种模式做笛卡尔积枚举。
 
-默认流程是先选择一个 scope，再在该 scope 内查询 key：
+一次搜索覆盖全部 scope，或一个明确的非空 scope 集合：
 
 ```text
-scope selection -> key candidates -> human selection -> reveal/copy/edit
+scope filter -> (scope, key) candidates -> human selection -> reveal/copy/edit
 ```
 
-跨 scope 的全局搜索不作为默认入口，避免所有记录退化成一个巨大列表。scope 选择器本身可以提供即时过滤，但 record 查询仍携带明确 scope。
+协议中 `scopes: []` 是“全部 scope”的唯一表示；非空数组表示明确并集，并在领域边界按 ordinal 去重和排序。不引入 `null`、空选择与通配符三套特例。搜索只匹配 key；结果始终返回 scope 和 key，因此跨 scope 的同名 key 不会丢失身份。`limit` 是整个 scope 集合的全局上限，不是每个 scope 各自的上限。
 
 ### 6.2 Exact
 
@@ -193,9 +193,9 @@ scope selection -> key candidates -> human selection -> reveal/copy/edit
 6. 编辑相似度；
 7. 长度惩罚。
 
-相同分数使用 key 的 ordinal 顺序稳定排序。GUI 只展示排序，不展示伪精确的百分比。
+相同分数先使用 scope，再使用 key 的 ordinal 顺序稳定排序。GUI 只展示排序，不展示伪精确的百分比。
 
-数据规模按数万条以内设计：daemon 从目标 scope 读取 key 元数据后在内存中评分，无需引入搜索服务或向 value 建立 FTS 索引。
+数据规模按数万条以内设计：daemon 从目标 scope 集合读取 `(scope, key)` 元数据后在内存中评分，无需引入搜索服务或向 value 建立 FTS 索引。
 
 ### 6.4 Regex
 
@@ -226,15 +226,17 @@ scrap get <scope> <key>
 scrap delete <scope> <key>
 scrap list <scope>
 
-scrap find <scope> <query> --exact
-scrap find <scope> <query> --fuzzy
-scrap find <scope> <pattern> --regex
-scrap find <scope> <query> --fuzzy --case-sensitive
+scrap find <query> --exact [--scope <scope>]...
+scrap find <query> --fuzzy [--scope <scope>]...
+scrap find <pattern> --regex --all
+scrap find <query> --fuzzy --scope cloud --scope staging --case-sensitive
 
 scrap daemon ping
 scrap daemon version
 scrap daemon shutdown
 ```
+
+`find` 未给出 `--scope` 时检索全部 scope；重复 `--scope` 表示明确并集。`--all` 是便于阅读和自描述脚本的显式写法，不得与 `--scope` 同时使用。未知的显式 scope 是错误，不会被静默忽略。文本结果为无歧义的 `scope<TAB>key` 行；JSON 包含 scope、key、presentation 和稳定元数据，但不包含 value 或伪概率分数。
 
 具体命令名一旦发布即视为 userspace contract；内部架构可以激进演化，既有参数、输出和退出码不得随意破坏。
 
@@ -316,7 +318,7 @@ GUI 使用 C# 与 Avalonia，实现为真正的本地桌面 client。视觉使�
 ### 8.1 主交互
 
 ```text
-Scope selector
+Scope manager + search coverage (current / all)
     ↓
 Search input
     ↓
@@ -331,7 +333,7 @@ Copy / Reveal / Edit / Delete
 
 核心布局：
 
-- 顶部：scope 选择与 scope 管理；
+- 顶部：scope 选择、scope 管理与搜索覆盖范围；
 - 中部：搜索框、匹配模式、大小写开关；
 - 左侧或主列表：key 候选；
 - 详情区：选中记录的 key、遮罩 value 和操作；
@@ -347,11 +349,21 @@ Copy / Reveal / Edit / Delete
 - `Ctrl+K` 或 `/` 聚焦搜索；
 - `Ctrl+C` 复制当前记录 value；
 - `Ctrl+N` 新建 record；
+- 检索覆盖范围可在当前 scope 与全部 scope 之间选择，默认为全部；所有候选都显示 scope 与 key；
 - masked value 默认不显示；
 - reveal 是明确、短暂、可逆的 UI 状态；
 - copy 成功只给轻量反馈，不弹阻塞式对话框；
 - 删除需要展示准确的 `scope/key`，避免删错同名候选；
 - fuzzy 分数不显示为百分比。
+
+新建/编辑 record 中不展示两个并列且似乎相互影响的“masked”和“隐藏”选项，而是两个正交状态：
+
+| 状态 | 生命周期 | 语义 |
+|---|---|---|
+| 编辑时可见性 | 仅当前对话框 | value 输入框现在是否显示文本；眼睛按钮只切换此状态 |
+| 默认展示策略 | 保存到 record | 详情页默认是遮罩（Masked）还是直接显示（Visible） |
+
+新建 record 默认是“编辑时隐藏 + 详情默认遮罩”。点击眼睛不能偷偷改变保存策略，切换 Masked/Visible 也不能改变当前输入框可见性。两种策略的 value 都使用同一加密流程。详细状态机与文案见 [`ux-product-spec.md`](ux-product-spec.md)。
 
 ### 8.3 剪贴板
 
@@ -367,6 +379,20 @@ Copy / Reveal / Edit / Delete
 - regex 非法：在搜索框附近显示表达式错误；
 - daemon 不可用：client 尝试启动，失败后显示可操作的诊断；
 - key provider 不可用：禁止进入假装成功但实际明文降级的状态。
+
+### 8.5 主题与国际化
+
+GUI 使用 MoeSegFault Style `v0.1.2` 的语义设计标记（semantic design tokens），通过 Avalonia `ThemeDictionaries` 映射到原生控件；视图不得散落原始颜色。它们之间的可追溯映射、对比度修正与上游来源记录在 [`research-platform-style.md`](research-platform-style.md)。
+
+- 主题是 `System | Light | Dark`，首次使用 `System`；保存用户选择而不是仅保存当前解析结果。
+- 界面语言为简体中文与英文；首次根据 OS UI culture 选择，不匹配时回退英文。
+- 主题和语言是互相独立的非敏感偏好，保存在 `LocalAppData/MoeSegFault/Scrap/preferences.json`；持久化失败时界面仍保持可用。切换语言即时刷新已打开界面，不需重启。
+- 用户数据、路径、CLI 机器 token 和 daemon 原始诊断不作为可翻译内容；界面包装与已知错误码才本地化。
+- 页面采用动态资源，在浅色、深色及键盘焦点下保持可读性，并尊重减少动效偏好。
+
+### 8.6 产品图标
+
+Scrap 使用独立于 MoeSegFault 品牌字标的产品图标。当前 master raster 是 `assets/branding/scrap-icon-source.png`，标准尺寸导出位于 `assets/branding/`，GUI ICO/PNG 位于 `src/Scrap.Gui/Assets/`，website 只保留其静态页面所需的导出。同一视觉身份用于 Avalonia window 与 executable、Windows MSI/ARP/开始菜单和发布页。派生资产不得各自手工重绘；更换 master 时必须一次性重新导出并在 16、32 和 256 px 检查。可编辑矢量源尚未入库，是后续品牌资产维护缺口。
 
 ## 9. IPC 协议
 
@@ -613,10 +639,6 @@ Unix:   ~/.scrap/
 
 ```text
 .scrap/
-├── bin/
-│   ├── scrap
-│   ├── scrap-gui
-│   └── scrapd
 ├── data/
 │   ├── scrap.db
 │   ├── scrap.db-wal
@@ -634,7 +656,6 @@ Unix:   ~/.scrap/
 
 | 路径 | 性质 | 恢复语义 |
 |---|---|---|
-| `bin/` | 可再生 | 重新安装 |
 | `data/` | 关键 | 需要备份；还必须保留 OS key material |
 | `config.json` | 重要 | 可由默认值重建，但会丢失用户偏好 |
 | `run/` | 临时 | daemon 停止后可清理 |
@@ -647,17 +668,16 @@ Unix:   ~/.scrap/
 - daemon 启动时检查明显不安全的权限并拒绝打开 store；
 - 不跟随会把关键文件解析到 `.scrap` 外部的符号链接或 reparse point。
 
-PATH 只加入：
+`~/.scrap` 是数据与运行时根目录，不强制所有平台使用同一程序安装路径：
 
-```text
-%USERPROFILE%\.scrap\bin
-~/.scrap/bin
-```
+- Windows MSI 将程序安装到当前用户 Local AppData 下的 `Scrap`，并让 MSI 拥有该 PATH 项。
+- Unix 归档安装器使用 `~/.scrap/bin`，并只移除自己写入的 profile block。
+- GUI 的非敏感界面偏好使用平台 LocalApplicationData，不与加密 store 混在同一文件。
 
 卸载应区分：
 
-- 普通卸载：删除 `bin/` 与集成项，保留 `data/`；
-- `--purge`：明确确认后删除数据与本地引用；
+- 普通卸载：删除安装器拥有的程序和集成项，保留 `data/`；
+- Unix 安装器的 `--purge`：明确确认后删除数据与本地引用；Windows MSI 不把用户数据收入 component，也不在卸载时隐式 purge；
 - purge 无法保证擦除 SSD、备份或外部 OS key store 中的历史副本，文案不得伪装成物理安全擦除。
 
 ## 14. 日志与诊断
@@ -706,6 +726,10 @@ scrap/
 │   ├── Scrap.Daemon/
 │   ├── Scrap.Cli/
 │   └── Scrap.Gui/
+├── installer/
+│   └── Scrap.Installer.Windows/
+├── website/
+│   └── Astro + TypeScript product release site
 ├── tests/
 │   ├── Scrap.Domain.Tests/
 │   ├── Scrap.Protocol.Tests/
@@ -819,15 +843,18 @@ Scrap.Daemon ──> Scrap.Crypto ──> Scrap.Platform
 
 首个完整版本只需要形成下列闭环：
 
-1. 安装到 `.scrap/bin`；
+1. 通过平台安装器部署 GUI、CLI 与 daemon，并把 `~/.scrap` 保留为独立数据/运行时边界；
 2. client 按需启动单实例 daemon；
 3. 初始化 OS-protected master key 与 SQLite；
 4. 创建、列出、重命名、删除 scope；
 5. set/get/list/delete record；
-6. GUI 提供 exact/fuzzy/regex 与 case-sensitive modifier；
-7. GUI 支持选择、遮罩、显示、复制和编辑；
+6. GUI 提供 exact/fuzzy/regex、case-sensitive modifier 与可选跨 scope 检索；
+7. GUI 支持选择、遮罩、显示、复制和编辑，且编辑时可见性不与 record presentation 耦合；
 8. CLI 具备稳定管道、JSON、stderr 与退出码契约；
-9. 覆盖迁移、并发、协议、加密和日志泄露测试。
+9. GUI 使用可追溯的 MoeSegFault Style 语义色，支持 System/Light/Dark 与 `zh-CN`/`en`；
+10. Windows 提供带产品图标的 per-user MSI，签名与 SmartScreen 状态如实披露；
+11. Astro 产品发布页在 GitHub Pages 发布中英文与明暗版本；
+12. 覆盖迁移、并发、协议、加密、日志泄露、站点与发布产物测试。
 
 这里的“首个完整版本”不是削弱后的临时架构：client–daemon、OS key protection、加密 SQLite、稳定 IPC 和双交互语义从一开始就是产品本体。远程同步、复杂类型、Web UI 和密码管理器能力则明确留在边界之外。
 
@@ -837,13 +864,15 @@ Scrap.Daemon ──> Scrap.Crypto ──> Scrap.Platform
 
 1. 领域中只有 `Scope` 与 `Record`，不偷偷引入另一套 credential hierarchy。
 2. `(scope, key)` 是大小写敏感的唯一身份；模糊与大小写不敏感只用于候选搜索。
-3. CLI 精确、可组合；GUI 启发式、可发现；最终选择权属于用户。
+3. CLI 精确、可组合；GUI 启发式、可发现；单一、多个与全部 scope 共用同一搜索语义，最终选择权属于用户。
 4. GUI 与 CLI 都是 client，永远不直接访问数据库和主密钥。
 5. `scrapd` 是唯一 authority，也是唯一 SQLite owner。
 6. 所有 value 都加密；`masked/plain` 只影响 presentation。
 7. value 不进入搜索索引、日志、错误消息或 telemetry。
 8. IPC 只对当前用户开放，不引入网络服务。
 9. 平台 key protection 不可用时 fail closed，不静默保存明文 key。
-10. `.scrap/data` 是关键数据，`.scrap/bin` 与 `.scrap/run` 可再生。
+10. `.scrap/data` 是关键数据，程序安装目录与 `.scrap/run` 可再生。
 11. 已发布 CLI、协议和数据格式属于 userspace contract，不因内部重构而破坏。
 12. 新功能若要求突破这些不变量，应先重新审视产品边界，而不是增加特殊分支。
+13. 主题和语言是独立、可持久化的 presentation preference，不影响用户数据、搜索或协议身份。
+14. Masked/Visible 是持久化的详情展示策略；编辑时显示/隐藏是短暂 UI 状态，两者永不互相赋值。

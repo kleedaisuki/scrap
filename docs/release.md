@@ -1,27 +1,56 @@
-# 发布与安装 / Release and installation
+# 发布、安装与站点 / Release, installation, and site
 
-本文描述首版发布工程的可复现流程、资产契约与卸载数据语义。This document defines the reproducible release flow, asset contract, and uninstall data semantics for the first release.
+本文是发布工程的操作契约：说明 GitHub Release 里应当出现什么、用户怎样安装、签名能够和不能够证明什么，以及产品发布页如何验证与部署。产品交互决策见 [`ux-product-spec.md`](ux-product-spec.md)，外部证据与平台研究见 [`research-platform-style.md`](research-platform-style.md)，本文不重复其论证。
 
-## 发布资产 / Release assets
+## 1. GitHub Release 资产契约
 
-Tag `vX.Y.Z` 会构建四个自包含部署（Self-contained deployment），且不启用裁剪（trimming）或预先编译（Ahead-of-Time compilation, AOT）：
+外部 push 严格语义化版本（Semantic Versioning, SemVer）tag `vX.Y.Z` 会触发 `.github/workflows/release.yml`。例如 `v1.2.3-beta+build.7` 标为 prerelease；稳定 tag 才参与 Latest。
 
-Tag 使用严格语义化版本（Semantic Versioning, SemVer）；例如 `v1.2.3-beta+build.7` 会标记为 GitHub prerelease 且不会成为 Latest。稳定版由 GitHub 的版本规则决定 Latest，维护分支重跑不会强制降级现有 Latest。
-
-| 运行时标识（Runtime Identifier, RID） | Runner | 资产 |
+| 运行时标识（Runtime Identifier, RID） | 面向用户的资产 | 便携/备用资产 |
 |---|---|---|
-| `win-x64` | Windows | `scrap-vX.Y.Z-win-x64.zip` |
-| `linux-x64` | Linux | `scrap-vX.Y.Z-linux-x64.tar.gz` |
-| `osx-x64` | Intel macOS | `scrap-vX.Y.Z-osx-x64.tar.gz` |
-| `osx-arm64` | Apple Silicon macOS | `scrap-vX.Y.Z-osx-arm64.tar.gz` |
+| `win-x64` | `scrap-vX.Y.Z-win-x64.msi` | `scrap-vX.Y.Z-win-x64.zip` |
+| `linux-x64` | `scrap-vX.Y.Z-linux-x64.tar.gz` | — |
+| `osx-x64` | `scrap-vX.Y.Z-osx-x64.tar.gz` | — |
+| `osx-arm64` | `scrap-vX.Y.Z-osx-arm64.tar.gz` | — |
 
-每个归档只包含对应平台的 `scrap`、`scrapd`、`scrap-gui` 单文件程序、安装/卸载脚本、项目许可证及完整的 `THIRD-PARTY-NOTICES.txt`。GitHub Release 同时提供每个资产的 `.sha256` 文件以及汇总的 `SHA256SUMS`。Unix 使用 `tar.gz`，因为工作流制品（Workflow artifact）的传输 ZIP 不保证保留可执行位。
+每个上述资产都有同名 `.sha256`；Release 还包含汇总 `SHA256SUMS`。归档内含对应平台的 `scrap`、`scrapd`、`scrap-gui` 自包含单文件程序，以及 `LICENSE` 与完整 `THIRD-PARTY-NOTICES.txt`。ZIP 继续存在是为了便携和排障，不应在网站上冒充 Windows 安装程序。
 
-自包含不等于不依赖操作系统：GUI、密钥存储等功能仍可能需要平台原生组件。自包含应用也不会自动获取后续 .NET Runtime 安全修复，因此 Runtime 更新后应重新发布。参见 [.NET 应用发布](https://learn.microsoft.com/dotnet/core/deploying/) 与 [RID 目录](https://learn.microsoft.com/dotnet/core/rid-catalog)。
+自包含部署（Self-contained deployment）不启用 trimming 或预先编译（Ahead-of-Time compilation, AOT），也不等于没有操作系统依赖。GUI 与平台密钥设施仍需要原生组件；自包含应用不会自动获取后续 .NET Runtime 修复，因此 Runtime 更新后必须重发。依赖或 Runtime 升级时，要以实际 RID publish 的 `.deps.json` 和上游锁定版本重新核验第三方 notices。
 
-## 安装 / Install
+## 2. Windows MSI
 
-从 [GitHub Releases](https://github.com/kleedaisuki/scrap/releases) 下载与机器匹配的归档并先验证 SHA-256：
+`installer/Scrap.Installer.Windows` 使用 WiX Toolset 生成真正的当前用户 MSI：
+
+- 安装 GUI、CLI 与 daemon 到用户的 Local AppData，不请求管理员权限；
+- 提供产品图标、开始菜单入口以及“应用和功能”卸载入口；
+- 把安装目录加入当前用户 PATH，新终端会获得更新；
+- 使用稳定 `UpgradeCode` 支持 major upgrade，并阻止旧版本覆盖新版本；
+- MSI component 只拥有程序文件、快捷方式与自己写入的注册表/PATH 项；用户数据 `~/.scrap` 从不属于 MSI component，升级和普通卸载都不会删除它。
+
+MSI 的安装目标与旧的 `~/.scrap/bin` 脚本布局不同。不要把脚本安装器的路径所有权或 purge 语义套到 MSI；需要彻底删除用户数据时，在确认备份后由用户明确删除 `~/.scrap`。
+
+### 2.1 SmartScreen 与签名事实
+
+**MSI 改善安装体验，但不会自动绕过 Microsoft Defender SmartScreen。** SHA-256 只能检查下载是否损坏，不能证明发布者身份；自签名证书也不能建立公众信任。可靠的分发路径是：
+
+1. 用公众信任的 Authenticode 证书签名 Windows executable payload 和最终 MSI；
+2. 使用 RFC 3161 时间戳，并在生成 hash 之前验证签名；
+3. 以稳定发布者身份逐步建立信誉，或转向 Microsoft Store 分发。
+
+GitHub Actions 的签名是**可选且诚实可见**的。仓库 secrets 必须成对配置：
+
+| Secret | 内容 |
+|---|---|
+| `WINDOWS_SIGNING_CERTIFICATE_BASE64` | Base64 编码的 PFX |
+| `WINDOWS_SIGNING_CERTIFICATE_PASSWORD` | PFX 密码 |
+
+只配置其中一个会使发布失败；两者都缺失时工作流明确告知 Windows 资产未签名，但仍会验证 MSI 结构与 checksum。两者齐全时，工作流调用 `signtool`，签名 executable 与 MSI，并执行 Authenticode verification。
+
+不要承诺“签了就永不弹窗”：SmartScreen 同时评估发布者和文件信誉。Microsoft Artifact Signing Public Trust 当前的实体地域资格不一定覆盖中国大陆发布者；选择它之前必须核实实际签约实体资格。否则采用合格商业 CA 的 Authenticode 证书或 Microsoft Store。详细来源见 [`research-platform-style.md`](research-platform-style.md#5-installer-and-github-release-workflow)。
+
+## 3. Linux 与 macOS 安装
+
+这两个平台当前提供归档，而非图形安装器：
 
 ```bash
 sha256sum --check scrap-vX.Y.Z-linux-x64.tar.gz.sha256
@@ -30,78 +59,77 @@ cd scrap-vX.Y.Z-linux-x64
 ./install.sh
 ```
 
-Windows 安装脚本同时兼容系统自带的 Windows PowerShell 5.1 与 PowerShell 7：
-
-```powershell
-$expected = (Get-Content .\scrap-vX.Y.Z-win-x64.zip.sha256).Split()[0]
-$actual = (Get-FileHash .\scrap-vX.Y.Z-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($actual -ne $expected) { throw "SHA-256 mismatch" }
-Expand-Archive .\scrap-vX.Y.Z-win-x64.zip -DestinationPath .
-cd .\scrap-vX.Y.Z-win-x64
-.\install.ps1
-```
-
-安装器仅管理当前用户的 `~/.scrap/bin` 中三个已知程序及自己添加的 PATH 项，不需要管理员权限，也不会创建或迁移数据库。重复运行是幂等的（idempotent），可用于原地升级。新 PATH 只对新开的终端生效。
-
-Unix 安装器向适用的 `.profile`、`.bashrc`、`.zshrc` 或 `.zprofile` 写入有明确标记的块；Windows 安装器使用用户级环境变量 API，并记录 PATH 项所有权。`--no-path`（PowerShell 为 `-NoPath`）可跳过 PATH 集成。
-
-Linux 还需要 `libsecret-1`、GLib/GIO、用户会话 D-Bus，以及实现 Secret Service 的登录会话（例如 GNOME Keyring 或支持 Secret Service 的 KWallet）。Debian/Ubuntu 通常安装 `libsecret-1-0`，Fedora/Arch 通常安装 `libsecret`。`install.sh` 只做非阻塞预检并给出警告，不会因当前 SSH、WSL 或 headless 会话未启动 keyring 而拒绝部署；但此时需要 store 的命令会返回退出码 `6`。`daemon version` / `ping` 成功只证明 IPC 生命周期正常，**不代表** key provider 已可用。
-
-## 卸载与数据 / Uninstall and data
-
-普通卸载只删除三个程序与安装器拥有的 PATH 集成，保留 `.scrap/data`、配置、日志以及平台密钥材料：
+安装到 `~/.scrap/bin`。`install.sh` 对适用 shell profile 写入带明确 marker 的 PATH block；`--no-path` 跳过集成。重复运行是幂等升级。普通卸载只删除三个程序与安装器拥有的 PATH block，并保留数据：
 
 ```bash
 ./uninstall.sh
 ```
 
-```powershell
-.\uninstall.ps1
-```
-
-只有显式 purge 才删除整个 `.scrap`。交互式执行时必须输入 `PURGE`；自动化还必须同时给出 `--yes` / `-Yes`：
+显式 purge 才删除整个 `.scrap`；非交互自动化还必须同时给出确认：
 
 ```bash
 ./uninstall.sh --purge --yes
 ```
 
-```powershell
-.\uninstall.ps1 -Purge -Yes
-```
+Purge 不是物理安全擦除（secure erasure）：SSD、备份、macOS Keychain 或 Linux Secret Service 仍可能保留历史副本。普通卸载不得删除外部密钥，否则保留的数据库可能永久无法解密。
 
-Purge 不是物理安全擦除（secure erasure）：SSD、备份、macOS Keychain 或 Linux Secret Service 等外部系统仍可能保留历史副本。普通卸载绝不删除外部密钥，否则保留下来的数据库可能永久不可解密。
+Linux 需要 `libsecret-1`、GLib/GIO、用户会话 D-Bus 和已解锁的 Secret Service。Debian/Ubuntu 通常安装 `libsecret-1-0`，Fedora/Arch 通常安装 `libsecret`。安装器只做非阻塞预检；SSH、WSL 或 headless 会话没有 keyring 时仍可部署，但使用 store 的命令会以退出码 `6` 报告不可用。`daemon ping/version` 成功只说明 IPC 生命周期正常，不证明 key provider 可用。
 
-## CI 与 Release 流程
+## 4. CI 与 Release 流程
 
 ```text
-push / pull request
-  └─ Windows + Linux + macOS：restore → build → test → script parse
+push main / pull request / manual
+  ├─ Windows + Linux + macOS: locked restore -> build -> test
+  └─ Ubuntu: frozen pnpm install -> website check -> test -> build
 
 push vX.Y.Z tag
-  └─ 三平台测试
-      └─ 四个原生 RID：single-file publish → CLI smoke test → archive
-          └─ 下载并核验 workflow artifacts → SHA256SUMS → GitHub Release
+  └─ three-platform tests
+      └─ four native RIDs: publish -> smoke -> archive
+          └─ Windows: build MSI -> optional Authenticode -> verify
+              └─ verify all sidecars -> SHA256SUMS -> GitHub Release
 ```
 
-Tag smoke 在全部 RID 上验证 `daemon version` / `ping` / `shutdown`，并在 Windows DPAPI 环境验证 scope 与 record CRUD。当前 Linux 生命周期 smoke 不冒充 Secret Service 集成测试；正式 Linux 业务验证必须在带用户会话 D-Bus 与已解锁 Secret Service 的环境执行。
+Tag smoke 在全部 RID 上验证 CLI 与 daemon 生命周期，并在 Windows DPAPI 环境验证 scope/record CRUD。Linux lifecycle smoke 不冒充 Secret Service integration test；正式 Linux 业务验证需要用户会话 D-Bus 与已解锁 Secret Service。
 
-Actions 使用完整提交 SHA 固定，`.github/dependabot.yml` 每周提出更新。普通任务只有 `contents: read`；只有最终发布任务拥有 `contents: write`。Release 重跑会覆盖同名资产，因此不会产生重复 Release。该结构遵循 [GitHub 的 .NET CI 指南](https://docs.github.com/actions/tutorials/build-and-test-code/net)、[工作流权限](https://docs.github.com/actions/reference/workflows-and-actions/workflow-syntax) 与 [`gh release create`](https://cli.github.com/manual/gh_release_create)。
+Actions 使用完整 commit SHA 固定，普通任务只有 `contents: read`，只有最终 Release job 使用 `contents: write`。Release 重跑当前会对同名资产执行 `--clobber`；因此恢复失败发布时必须确认 tag 和源码完全一致。若仓库未来启用 immutable releases，应改为 draft assemble-and-publish，不能继续依赖覆盖已发布资产。
 
-### 创建发布 / Create a release
+创建发布：
 
 ```bash
 git tag -a vX.Y.Z -m "scrap vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
-必须由外部 push Tag；不要让一个使用 `GITHUB_TOKEN` 的工作流创建 Tag 后期待另一工作流被普通 push 事件触发。参见 [`GITHUB_TOKEN` 事件行为](https://docs.github.com/actions/concepts/security/github_token)。
+Tag 必须由外部 push；使用 `GITHUB_TOKEN` 的工作流创建 tag 后，不能假定另一个普通 push workflow 会被触发。
 
-当前无签名时不需要额外仓库 Secret。面向正式桌面分发仍建议后续增加：
+## 5. 产品发布页与 GitHub Pages
 
-- Windows Authenticode 证书及其密码；
-- Apple Developer ID 证书、证书密码、Team ID 与 notarization 凭据；
-- 可选的 Linux 包签名密钥。
+发布页是 `website/` 下的 Astro 7 + TypeScript 静态站点，不是文档站。它使用 MoeSegFault Style `v0.1.2` exact-version CSS，并保留本地 fallback tokens；主题选择为 `auto | light | dark`，保存到浏览器 `localStorage`。根路径 `/` 是完整、可直接分享的简体中文页，`/en/` 是英文页；不根据浏览器语言强制重定向。
 
-在这些凭据和受测流程就绪前，工作流不会假装产物已签名或已公证。macOS 当前资产是命令行可启动的裸可执行文件，不是签名并公证的 `.app` / `.dmg` 安装体验。
+本地开发与完整验证：
 
-升级 `global.json` 中的 SDK、Avalonia、SQLite、Skia/HarfBuzz 或其他发布依赖时，必须同步用实际 RID publish 的 `.deps.json`、NuGet 包内许可证及对应上游锁定提交重新核验 `THIRD-PARTY-NOTICES.txt`；不能假设旧 Runtime 的 notices 自动覆盖新二进制。
+```bash
+pnpm --dir website dev
+pnpm --dir website run verify
+```
+
+`verify` 顺序执行 Astro check、Vitest 和静态 build，输出为 `website/dist/`。不要直接编辑 `dist/`。
+
+Pages workflow 在影响站点、workspace 或 workflow 的 main push（以及 manual dispatch）时：
+
+1. frozen install 并运行与 CI 相同的验证；
+2. 检查生成资产中的 `CNAME` 精确等于 `scrap.moesegfault.dev`；
+3. 上传 `website/dist/` 为 Pages artifact；
+4. 在 `github-pages` environment 中使用最小的 `pages: write` 与 `id-token: write` 权限部署。
+
+仓库内配置不能独自完成域名启用。GitHub **Settings → Pages** 必须设置 `scrap.moesegfault.dev` 并启用 HTTPS；DNS 的 `scrap` CNAME 应指向 `kleedaisuki.github.io`，不包含 repository path。`website/public/CNAME` 记录构建意图，仓库设置和 DNS 才是实际权威。
+
+## 6. 发布前检查清单
+
+- [ ] `.NET` 三平台 test 与 website `ci` 全部通过；
+- [ ] 四个 RID 的应用从打包产物启动，而非只验证源码 build；
+- [ ] Windows MSI fresh install、upgrade、GUI/CLI 启动、PATH 与 normal uninstall 已验证；
+- [ ] 若配置签名，executable 和 MSI 的 publisher、RFC 3161 timestamp 与 `signtool verify /pa /all` 均正确；若未配置，Release notes 不声称已签名；
+- [ ] 每个资产的 sidecar 与 `SHA256SUMS` 在签名完成后生成并验证；
+- [ ] `/`、`/en/`、主题切换、产品图标与平台下载链接正确；
+- [ ] GitHub Pages custom domain 和 HTTPS 生效。
