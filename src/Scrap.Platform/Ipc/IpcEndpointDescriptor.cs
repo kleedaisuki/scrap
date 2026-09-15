@@ -11,8 +11,10 @@ namespace Scrap.Platform.Ipc;
 /// Describes and creates a current-user-only .NET named-pipe endpoint.
 /// </summary>
 /// <remarks>
-/// Windows 使用稳定哈希名称；Unix 使用 <c>.scrap/run</c> 内的 rooted pipe name，.NET 将其绑定为 Unix domain socket。
-/// Windows uses a stable hashed name. Unix uses a rooted pipe name below <c>.scrap/run</c>, which .NET binds as a Unix domain socket.
+/// Windows 使用 <c>LOCAL\</c> app-container namespace 内的稳定哈希名称；Unix 使用 <c>.scrap/run</c> 内的
+/// rooted pipe name，.NET 将其绑定为 Unix domain socket。
+/// Windows uses a stable hashed name in the <c>LOCAL\</c> app-container namespace. Unix uses a rooted pipe name below
+/// <c>.scrap/run</c>, which .NET binds as a Unix domain socket.
 /// daemon 必须先取得 <see cref="Processes.DaemonInstanceLease"/>，再创建 server stream，以免并发 bind 竞争删除 winner 的 socket。
 /// The daemon must acquire <see cref="Processes.DaemonInstanceLease"/> before creating the server stream so a competing bind cannot unlink the winner's socket.
 /// </remarks>
@@ -41,8 +43,25 @@ public sealed class IpcEndpointDescriptor
     {
         ArgumentNullException.ThrowIfNull(paths);
         string identity = CurrentUserIdentity.GetStableId();
+        bool isWindows = OperatingSystem.IsWindows();
+        string pipeName = CreatePipeName(paths, identity, isWindows);
+        return new IpcEndpointDescriptor(pipeName, paths);
+    }
+
+    /// <summary>
+    /// 为显式平台构造可测试的确定性 pipe name。
+    /// Creates a testable deterministic pipe name for an explicit platform.
+    /// </summary>
+    /// <param name="paths">已规范化的 profile 布局。The normalized profile layout.</param>
+    /// <param name="identity">稳定的当前用户标识。The stable current-user identity.</param>
+    /// <param name="isWindows">是否应生成 Windows endpoint。Whether to generate a Windows endpoint.</param>
+    /// <returns>传给 .NET named-pipe API 的名称。The name passed to the .NET named-pipe API.</returns>
+    internal static string CreatePipeName(ScrapPathLayout paths, string identity, bool isWindows)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        ArgumentException.ThrowIfNullOrWhiteSpace(identity);
         string profile = Path.GetFullPath(paths.RootDirectory);
-        if (OperatingSystem.IsWindows())
+        if (isWindows)
         {
             profile = profile.ToUpperInvariant();
         }
@@ -50,9 +69,9 @@ public sealed class IpcEndpointDescriptor
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes($"scrap-ipc-v1\0{identity}\0{profile}"));
         string suffix = Convert.ToHexStringLower(hash.AsSpan(0, 16));
 
-        if (OperatingSystem.IsWindows())
+        if (isWindows)
         {
-            return new IpcEndpointDescriptor($"scrap-{suffix}", paths);
+            return $@"LOCAL\scrap-{suffix}";
         }
 
         string socketPath = Path.Combine(paths.RunDirectory, $"ipc-{suffix[..8]}.sock");
@@ -62,7 +81,7 @@ public sealed class IpcEndpointDescriptor
             throw new PlatformPathException($"The Unix IPC endpoint path is too long ({socketPathBytes} bytes; maximum supported is {UnixSocketPathConservativeLimit}).");
         }
 
-        return new IpcEndpointDescriptor(socketPath, paths);
+        return socketPath;
     }
 
     /// <summary>
