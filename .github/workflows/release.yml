@@ -281,10 +281,20 @@ jobs:
           New-Item -ItemType Directory -Path $logDirectory, $dataDirectory -Force | Out-Null
           Set-Content -LiteralPath $sentinel -Value "keep"
 
+          # Wait for the GUI-subsystem Windows Installer process and capture its real exit code.
+          # 等待 GUI 子系统的 Windows Installer 进程，并读取真实退出码。
+          function Invoke-MsiExec {
+            param([Parameter(Mandatory)][string[]] $Arguments)
+
+            $process = Start-Process -FilePath "$env:SystemRoot\System32\msiexec.exe" `
+              -ArgumentList $Arguments -Wait -PassThru -WindowStyle Hidden
+            return $process.ExitCode
+          }
+
           $failure = $null
           try {
-            & msiexec.exe /i $msi /qn /norestart "/l*v" $installLog
-            if ($LASTEXITCODE -notin @(0, 3010)) { throw "MSI installation failed with exit code $LASTEXITCODE." }
+            $installExitCode = Invoke-MsiExec @("/i", "`"$msi`"", "/qn", "/norestart", "/l*v", "`"$installLog`"")
+            if ($installExitCode -notin @(0, 3010)) { throw "MSI installation failed with exit code $installExitCode." }
             foreach ($program in @("scrap.exe", "scrapd.exe", "scrap-gui.exe")) {
               if (-not (Test-Path -LiteralPath (Join-Path $installDirectory $program) -PathType Leaf)) {
                 throw "MSI did not install $program."
@@ -300,9 +310,9 @@ jobs:
           }
           finally {
             if (Test-Path -LiteralPath $installDirectory) {
-              & msiexec.exe /x $msi /qn /norestart "/l*v" $uninstallLog
-              if ($LASTEXITCODE -notin @(0, 3010) -and $null -eq $failure) {
-                $failure = "MSI uninstall failed with exit code $LASTEXITCODE."
+              $uninstallExitCode = Invoke-MsiExec @("/x", "`"$msi`"", "/qn", "/norestart", "/l*v", "`"$uninstallLog`"")
+              if ($uninstallExitCode -notin @(0, 3010) -and $null -eq $failure) {
+                $failure = "MSI uninstall failed with exit code $uninstallExitCode."
               }
             }
           }
