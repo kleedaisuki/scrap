@@ -133,7 +133,8 @@
   .trust-strip { display: flex; flex-wrap: wrap; justify-content: center; gap: .75rem 2.25rem; width: min(calc(100% - 3rem), var(--moe-layout-content)); margin: -2rem auto 5rem; padding: 1.25rem; border-block: 1px solid var(--moe-color-border); color: var(--moe-color-text-soft); font-size: .78rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
   .trust-strip span::before { content: "✦"; margin-right: .55rem; color: var(--moe-color-accent-strong); }
   .product-shot { position: relative; margin: 0; }
-  .product-shot img { position: relative; width: 100%; border: 1px solid color-mix(in srgb, var(--moe-color-border) 82%, transparent); border-radius: var(--moe-radius-md); background: var(--moe-color-surface-strong); box-shadow: 0 2.5rem 5rem color-mix(in srgb, var(--moe-color-accent-strong) 18%, transparent); }
+  /* Responsive width must override both HTML dimension hints; otherwise height stays at 768px and stretches the screenshot. / 响应式宽度必须同时覆盖 HTML 尺寸提示，否则高度会停留在 768px 并拉伸截图。 */
+  .product-shot img { position: relative; width: 100%; height: auto; border: 1px solid color-mix(in srgb, var(--moe-color-border) 82%, transparent); border-radius: var(--moe-radius-md); background: var(--moe-color-surface-strong); box-shadow: 0 2.5rem 5rem color-mix(in srgb, var(--moe-color-accent-strong) 18%, transparent); }
   .product-shot figcaption { margin-top: .9rem; color: var(--moe-color-text-soft); font-size: .78rem; font-weight: 700; line-height: 1.5; }
   .hero-shot { transform: rotate(1.15deg); }
   .hero-shot .shot-glow { position: absolute; inset: 8% -4% -8% 12%; border-radius: 42%; background: color-mix(in srgb, var(--moe-color-accent) 24%, transparent); filter: blur(3rem); }
