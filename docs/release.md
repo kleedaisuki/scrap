@@ -82,7 +82,7 @@ Store 数字版本独立记录在 `installer/Scrap.Installer.Store/StoreVersion.
 
 脚本只在仓库 `.temp/wack/` 保存可审阅报告与候选 hash，不提权、不安装证书；缺少/不完整报告、工具失败或任何必需测试未通过都会明确失败。若 WACK 汇总为 `WARNING` 但所有非通过项均明确标记为 optional，可人工审阅后显式添加 `-AllowOptionalWarnings`；脚本仍会醒目标出“不是 PASS”。WACK 需要不被中断的交互式 Windows 用户会话，仍不能替代 Partner Center ingestion。
 
-当前 `1.0.2.0` / `0.2.0-preview.8` 本地候选的 WACK 结果是完整运行、24 项测试、`OVERALL_RESULT=PASS`，所有必需项通过。可选的 **Blocked executables** 静态分析仍因 self-contained .NET 载荷包含进程启动 API 与运行时工具名字符串而报 `FAIL`；脚本不会隐藏该项。此前的 DPI awareness warning 已通过 GUI executable 的 Per-Monitor V2 manifest 修复并在本次报告中通过。
+当前 `1.0.2.0` / `0.2.0-preview.8` 生产候选来自 [GitHub Actions run 34945022858](https://github.com/kleedaisuki/scrap/actions/runs/34945022858) 的 artifact `10386584492`，MSIX SHA-256 为 `67dccedacc39c3207384526cc9592d577ec2aae5abb9be36fcddb1c5cc9ed989`。下载后对**同一文件**运行 WACK：完整运行 24 项测试、`OVERALL_RESULT=PASS`、所有必需项通过；保存的 XML 报告 SHA-256 为 `8d0295891d55609579dc91a7cb8d1effc0403040ee0836f54ff1645e27362a86`。可选的 **Blocked executables** 静态分析仍因 self-contained .NET 载荷包含进程启动 API 与运行时工具名字符串而报 `FAIL`；脚本不会隐藏该项。此前的 DPI awareness warning 已通过 GUI executable 的 Per-Monitor V2 manifest 修复并在本次报告中通过。
 
 ## 3. Linux 与 macOS 安装
 
