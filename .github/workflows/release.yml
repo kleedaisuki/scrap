@@ -291,6 +291,17 @@ jobs:
             return $process.ExitCode
           }
 
+          # Compare PATH by effective entries because Windows Installer may normalize separators.
+          # 按有效路径项比较 PATH，因为 Windows Installer 可能会规范化分隔符。
+          function Get-NormalizedPathEntries {
+            param([AllowEmptyString()][string] $Value)
+
+            return @($Value -split ';' |
+              ForEach-Object { $_.Trim().TrimEnd('\').ToUpperInvariant() } |
+              Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+              Sort-Object -Unique)
+          }
+
           $failure = $null
           try {
             $installExitCode = Invoke-MsiExec @("/i", "`"$msi`"", "/qn", "/norestart", "/l*v", "`"$installLog`"")
@@ -321,7 +332,11 @@ jobs:
           if (Test-Path -LiteralPath $shortcut) { throw "MSI uninstall left the Start menu shortcut behind." }
           $restoredUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
           if ($null -eq $restoredUserPath) { $restoredUserPath = "" }
-          if ($restoredUserPath -ne $originalUserPath) { throw "MSI uninstall did not restore the user PATH." }
+          $originalPathEntries = @(Get-NormalizedPathEntries $originalUserPath)
+          $restoredPathEntries = @(Get-NormalizedPathEntries $restoredUserPath)
+          if (Compare-Object -ReferenceObject $originalPathEntries -DifferenceObject $restoredPathEntries) {
+            throw "MSI uninstall did not restore the effective user PATH entries."
+          }
           if (-not (Test-Path -LiteralPath $sentinel -PathType Leaf)) { throw "MSI uninstall removed user data." }
           if ($null -ne $failure) { throw $failure }
       - name: Upload Windows Installer diagnostic logs
