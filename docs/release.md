@@ -124,6 +124,8 @@ Pages workflow 在影响站点、workspace 或 workflow 的 main push（以及 m
 
 仓库内配置不能独自完成域名启用。GitHub **Settings → Pages** 必须设置 `scrap.moesegfault.dev` 并启用 HTTPS；DNS 的 `scrap` CNAME 应指向 `kleedaisuki.github.io`，不包含 repository path。`website/public/CNAME` 记录构建意图，仓库设置和 DNS 才是实际权威。
 
+GitHub 签发 Pages 源站证书期间，Cloudflare 上的该 CNAME 应先设为 **DNS only**。如果记录保持代理状态，公共 DNS 只暴露 Cloudflare 的 A/AAAA 地址，GitHub API 可能持续返回 `The certificate does not exist yet`，从而无法启用 Pages 的 `https_enforced`。Cloudflare 边缘能够建立 HTTPS 并不等于 Pages 已强制 HTTPS：必须分别验证 `https://` 可访问、`http://` 会重定向，以及 Pages API 的 `https_enforced: true`。源站证书签发并启用强制 HTTPS 后，再决定是否恢复 Cloudflare 代理。参见 [GitHub 的 Pages HTTPS 排障](https://docs.github.com/en/pages/getting-started-with-github-pages/securing-your-github-pages-site-with-https#troubleshooting-certificate-provisioning-certificate-not-yet-created-error) 与 [Cloudflare 的代理状态说明](https://developers.cloudflare.com/dns/proxy-status/)。
+
 ## 6. 发布前检查清单
 
 - [ ] `.NET` 三平台 test 与 website `ci` 全部通过；
