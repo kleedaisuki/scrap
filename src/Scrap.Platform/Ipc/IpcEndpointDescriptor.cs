@@ -11,9 +11,9 @@ namespace Scrap.Platform.Ipc;
 /// Describes and creates a current-user-only .NET named-pipe endpoint.
 /// </summary>
 /// <remarks>
-/// Windows 使用 <c>LOCAL\</c> app-container namespace 内的稳定哈希名称；Unix 使用 <c>.scrap/run</c> 内的
+/// Windows 使用打包应用可访问的 <c>LOCAL\</c> namespace 内的稳定哈希名称；Unix 使用 <c>.scrap/run</c> 内的
 /// rooted pipe name，.NET 将其绑定为 Unix domain socket。
-/// Windows uses a stable hashed name in the <c>LOCAL\</c> app-container namespace. Unix uses a rooted pipe name below
+/// Windows uses a stable hashed name in the packaged-app-compatible <c>LOCAL\</c> namespace. Unix uses a rooted pipe name below
 /// <c>.scrap/run</c>, which .NET binds as a Unix domain socket.
 /// daemon 必须先取得 <see cref="Processes.DaemonInstanceLease"/>，再创建 server stream，以免并发 bind 竞争删除 winner 的 socket。
 /// The daemon must acquire <see cref="Processes.DaemonInstanceLease"/> before creating the server stream so a competing bind cannot unlink the winner's socket.

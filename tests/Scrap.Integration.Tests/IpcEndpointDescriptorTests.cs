@@ -5,8 +5,8 @@ using Scrap.Platform.Paths;
 namespace Scrap.Integration.Tests;
 
 /// <summary>
-/// 验证 Windows app-container 与 Unix socket 的确定性 endpoint 命名合约。
-/// Verifies deterministic endpoint naming contracts for Windows app containers and Unix sockets.
+/// 验证 Windows 打包应用与 Unix socket 的确定性 endpoint 命名合约。
+/// Verifies deterministic endpoint naming contracts for packaged Windows apps and Unix sockets.
 /// </summary>
 public sealed class IpcEndpointDescriptorTests
 {
