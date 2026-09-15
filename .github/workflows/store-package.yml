@@ -190,6 +190,58 @@ jobs:
             }
           }
 
+          # 先在单一暂存根中组装上传契约，避免 upload-artifact 推导出仓库与 runner.temp 两棵目录树。
+          # Assemble one staging root first so upload-artifact cannot infer separate repository and runner.temp trees.
+          $staging = Join-Path $env:RUNNER_TEMP "microsoft-store-listing-kit"
+          if (Test-Path -LiteralPath $staging) {
+            throw "Store listing staging root already exists and will not be merged: $staging"
+          }
+          New-Item -ItemType Directory -Path $staging | Out-Null
+
+          $metadata = @(
+            @{ Source = "store-listing/README.md"; Destination = "README.md" },
+            @{ Source = "store-listing/submission.md"; Destination = "submission.md" },
+            @{ Source = "store-listing/locales/zh-CN.md"; Destination = "locales/zh-CN.md" },
+            @{ Source = "store-listing/locales/en-US.md"; Destination = "locales/en-US.md" },
+            @{ Source = "store-listing/assets/README.md"; Destination = "assets/README.md" },
+            @{ Source = "store-listing/assets/AppTileIcon-300x300.png"; Destination = "assets/AppTileIcon-300x300.png" }
+          )
+          foreach ($item in $metadata) {
+            if (-not (Test-Path -LiteralPath $item.Source -PathType Leaf)) {
+              throw "Missing Store listing source file: $($item.Source)"
+            }
+            $destination = Join-Path $staging $item.Destination
+            New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+            Copy-Item -LiteralPath $item.Source -Destination $destination
+          }
+          foreach ($relative in $expected) {
+            $source = Join-Path $output $relative
+            $destination = Join-Path (Join-Path $staging "screenshots") $relative
+            New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+            Copy-Item -LiteralPath $source -Destination $destination
+          }
+
+          $expectedArtifact = @(
+            "README.md",
+            "submission.md",
+            "locales/zh-CN.md",
+            "locales/en-US.md",
+            "assets/README.md",
+            "assets/AppTileIcon-300x300.png"
+          ) + @($expected | ForEach-Object { "screenshots/$_" })
+          $stagingRoot = (Resolve-Path -LiteralPath $staging).Path.TrimEnd([IO.Path]::DirectorySeparatorChar)
+          $actualArtifact = @(Get-ChildItem -LiteralPath $staging -Recurse -File | ForEach-Object {
+            $_.FullName.Substring($stagingRoot.Length + 1).Replace([IO.Path]::DirectorySeparatorChar, '/')
+          })
+          if ($actualArtifact.Count -ne 14) {
+            throw "Store listing artifact must contain exactly 14 files, found $($actualArtifact.Count)."
+          }
+          $layoutDifference = @(Compare-Object -ReferenceObject @($expectedArtifact | Sort-Object) -DifferenceObject @($actualArtifact | Sort-Object))
+          if ($layoutDifference.Count -ne 0) {
+            $layoutDifference | Format-Table | Out-String | Write-Error
+            throw "Store listing artifact does not match the root-relative layout contract."
+          }
+
       - name: Sign, install, and exercise an ephemeral test copy
         shell: pwsh
         run: |
@@ -311,9 +363,8 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: microsoft-store-listing-kit
-          path: |
-            ${{ runner.temp }}/store-listing-screenshots
-            store-listing/**/*.md
-            store-listing/assets/AppTileIcon-300x300.png
+          # 上传唯一暂存根的内容；下载后 README.md 应直接位于 artifact 根目录。
+          # Upload only the single staging root; README.md must be at the downloaded artifact root.
+          path: ${{ runner.temp }}/microsoft-store-listing-kit/
           if-no-files-found: error
           retention-days: 14

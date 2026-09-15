@@ -74,6 +74,8 @@ Store 数字版本独立记录在 `installer/Scrap.Installer.Store/StoreVersion.
 
 `build/generate-store-assets.ps1` 从唯一品牌源图生成并验证 MSIX 的 scale/targetsize/unplated 变体及 `store-listing/assets/AppTileIcon-300x300.png`；Store workflow 会拒绝未提交的生成差异。双语一览文案、功能项、截图说明、隐私/年龄分级答案与 `runFullTrust` 审核说明集中在 [`store-listing/`](../store-listing/README.md)。首次提交的 **What's new** 必须完全留空。
 
+`microsoft-store-listing-kit` artifact 通过 `${RUNNER_TEMP}/microsoft-store-listing-kit` 这一单一暂存根组装并上传。下载后 `README.md`、`submission.md` 必须直接位于根目录，另含 `locales/`、`assets/`、`screenshots/`，严格合计 14 个文件；其中八张截图必须来自该次 workflow 的全新捕获，而不是混入仓库与 runner 临时目录前缀。The listing artifact is assembled and uploaded from one staging root; its two top-level Markdown files, three named subdirectories, exact 14-file inventory, and freshly captured screenshots are a release contract.
+
 在相同候选上运行 WACK，不要用重新构建的“等价包”替代：
 
 ```powershell
