@@ -9,7 +9,7 @@ This document records observations, not portable performance promises. The numbe
 
 ## 1. Result in one paragraph
 
-For an already-running daemon, IPC is effectively negligible: ping latency was **0.133 ms p50 / 0.216 ms p95**. End-to-end encrypted record operations through the real daemon were **1.97 ms p50 set**, **0.335 ms get**, and **1.59 ms delete**. Search is the scaling boundary. At 1,000 records, all-scope fuzzy search was **5.26 ms p50**; at 10,000 it was **81.7 ms**; at 50,000 it was **424 ms**. Selecting three of ten scopes reduced the 50,000-record fuzzy case to **119 ms** because only 15,000 candidates were loaded. Controlled phase timings and an EventPipe CPU profile agree that SQLite row materialization—especially strings and timestamps—is the dominant cost, not fuzzy scoring. This is excellent for ordinary personal profiles and still usable at 10,000 records, but an all-scope 50,000-record profile is visibly outside the instant-search regime.
+For an already-running daemon, IPC is effectively negligible: ping latency was **0.133 ms p50 / 0.216 ms p95**. End-to-end encrypted record operations through the real daemon were **1.97 ms p50 set**, **0.335 ms get**, and **1.59 ms delete**. Search is the scaling boundary. At 1,000 records, all-scope fuzzy search was **5.26 ms p50**; at 10,000 it was **81.7 ms**; at 50,000 it was **424 ms**. Selecting three of ten scopes reduced the 50,000-record fuzzy case to **119 ms** because only 15,000 candidates were loaded. Controlled phase timings and an EventPipe CPU profile agree that the SQLite metadata-loading/materialization path is dominant, not fuzzy scoring. This is excellent for ordinary personal profiles and still usable at 10,000 records, but an all-scope 50,000-record profile is visibly outside the instant-search regime.
 
 ## 2. Environment and method
 
@@ -23,7 +23,37 @@ For an already-running daemon, IPC is effectively negligible: ping latency was *
 | Power plan | Windows High performance |
 | SQLite | `Microsoft.Data.Sqlite` 10.0.12; WAL; `synchronous=FULL`; connection pooling enabled |
 
-The isolated benchmark harness and every generated profile, trace, and JSON result lived under `.temp/` or `.cache/`; no real `~/.scrap` profile was opened. Reported percentiles use nearest-rank p50/p95/p99. Workloads ran sequentially after explicit warm-up, with no intentional competing load. Laptop thermals, Defender scanning, OS scheduling, filesystem cache, and garbage-collection timing remain uncontrolled confounders, so differences of only a few percent should be treated as noise.
+The isolated benchmark harness and every generated profile, trace, and JSON result lived under `.temp/` or `.cache/`; no real `~/.scrap` profile was opened. Reported percentiles use nearest-rank p50/p95/p99. Workloads ran sequentially after explicit warm-up, with no intentional competing load. Laptop thermals, Defender scanning, OS scheduling, filesystem cache, and garbage-collection timing remain uncontrolled confounders, so differences of only a few percent should be treated as noise. The methodology is repeatable, but timing values are not exactly reproducible across machines or even consecutive runs on one laptop. Compact raw outputs supporting this baseline are retained in [`docs/performance-data/2026-09-15`](performance-data/2026-09-15/).
+
+### Re-running the maintained harness
+
+Run from the repository root with the locked .NET SDK. The required root and every output file are deliberately restricted to this repository's `.temp/` or `.cache/` trees, so the tool cannot open the real `~/.scrap` profile. A complete run creates fresh profiles and can take several minutes:
+
+```powershell
+dotnet restore tools/Scrap.Perf/Scrap.Perf.csproj --locked-mode
+dotnet run --no-restore -c Release --project tools/Scrap.Perf -- baseline .temp/perf-repro .temp/perf-repro/results.json
+```
+
+The explicit modes permit focused reruns. `baseline` first creates the 50,000-record fixture used by the latter commands:
+
+```powershell
+# Process readiness and persistent IPC only (Windows uses the real DPAPI provider).
+dotnet run --no-restore -c Release --project tools/Scrap.Perf -- startup .temp/perf-startup .temp/perf-startup/results.json
+
+# Idle and sustained 10k-search daemon memory/CPU (about two minutes).
+dotnet run --no-restore -c Release --project tools/Scrap.Perf -- resources .temp/perf-resources .temp/perf-resources/results.json
+
+# Current metadata materialization path against the generated 50k database.
+dotnet run --no-restore -c Release --project tools/Scrap.Perf -- metadata .temp/perf-repro/search/search-50000/data/scrap.db .temp/perf-repro/metadata.json
+
+# Index A/B requires independent database copies because each run writes fixtures.
+Copy-Item .temp/perf-repro/search/search-50000/data/scrap.db .temp/perf-repro/index-keep.db
+Copy-Item .temp/perf-repro/search/search-50000/data/scrap.db .temp/perf-repro/index-drop.db
+dotnet run --no-restore -c Release --project tools/Scrap.Perf -- index .temp/perf-repro/index-keep.db keep .temp/perf-repro/index-keep.json
+dotnet run --no-restore -c Release --project tools/Scrap.Perf -- index .temp/perf-repro/index-drop.db drop .temp/perf-repro/index-drop.json
+```
+
+The historical shared-cache A/B cannot be rerun from current `main` alone because that variant was intentionally removed. Its raw outputs are retained beside the baseline; recreating that comparison requires the corresponding pre-change source with `Cache=Shared`. Do not compare a new run directly with the retained numbers as if the host environment were controlled.
 
 ### Startup and IPC
 
@@ -46,6 +76,8 @@ The search-only daemon used a deterministic in-memory test master-key provider s
 Keys were shaped like `service-000123-credential`, with every tenth record ending in `api-token`. Exact used one existing full key, fuzzy used `api-token`, and regex used `api-token$`. The three-scope case selected `scope-01`, `scope-03`, and `scope-07` (30% of the records). Its regex intentionally has no match but still scans the selected candidate set.
 
 ## 3. Measurements
+
+The CRUD, search, and phase tables come from [`baseline-private.json`](performance-data/2026-09-15/baseline-private.json). The readiness and ping table uses the corrected follow-up run in [`startup-final.json`](performance-data/2026-09-15/startup-final.json); the startup object embedded in the main baseline is retained as raw history but is superseded. Focused cache and index tables map to the correspondingly named JSON files in the same directory.
 
 ### 3.1 Process readiness and persistent IPC
 
@@ -98,6 +130,17 @@ The GUI waits for a 220 ms debounce after ordinary query typing. A rough, non-re
 
 No defensible automated GUI cold-start measurement was made: the production GUI has no benchmark-only profile argument, and redirecting it to a synthetic profile would either touch user state or change the shipped startup path. The deterministic screenshot harness measures correctness, not interactive startup performance.
 
+### 3.4 Runtime resource footprint
+
+`WorkingSet64`, `PrivateMemorySize64`, and processor time were sampled from fresh daemon child processes after `Process.Refresh()`. Idle values summarize 10 runs; loaded values summarize 5 runs of continuous serial, all-scope fuzzy search over 10,000 records.
+
+| Daemon state | Working set (median of run medians) | Private bytes | CPU | Throughput |
+|---|---:|---:|---:|---:|
+| Storage-ready, idle | 45.81 MiB | 12.49 MiB | effectively idle | n/a |
+| Sustained 10k fuzzy search | 83.54 MiB | 46.45 MiB | 95.83% of one logical core (4.79% of this 20-thread host) | 12.69 searches/s median |
+
+Four loaded runs produced 12.42–12.89 searches/s; one noisy workstation run fell to 7.46 searches/s. Loaded samples were taken after completed requests, so they can miss shorter intra-request memory peaks. The workload shows one continuously active client, not parallel scalability. GUI resources remain deliberately unmeasured because the shipped GUI lacks an isolated profile-root seam and launching it would touch the real profile. Raw runs are in [`resource-footprint.json`](performance-data/2026-09-15/resource-footprint.json).
+
 ## 4. Bottleneck evidence
 
 Controlled in-process phases separated SQLite metadata loading from fuzzy matching while retaining the production implementations:
@@ -109,7 +152,7 @@ Controlled in-process phases separated SQLite metadata loading from fuzzy matchi
 | 50,000 / all | 369 / 480 | 12.3 / 34.4 |
 | 50,000 / 3 scopes | 107 / 129 | 3.50 / 14.2 |
 
-A 15-second EventPipe sample profile over repeated 50,000-record all-scope fuzzy searches supports the same causal interpretation. The trace's largest non-idle exclusive frames were `SqliteDataReader.NextResult` (24.6% of all samples), `GetString` (4.86%), `Read` (4.14%), and native `sqlite3_step` (2.07%). `RecordSearch.SearchFuzzy` was only 0.70% exclusive. `Gen2GcCallback.Finalize` accounted for 5.37%, consistent with the allocation pressure from materializing complete metadata rows. `WaitHandle` represented 47.2% and is not productive search CPU. The 50,000-record database was 12.9 MiB, so raw disk capacity is not the explanation; row conversion and object materialization dominate.
+A 15-second EventPipe sample profile over repeated 50,000-record all-scope fuzzy searches supports the same causal interpretation. The trace's largest non-idle exclusive frames were `SqliteDataReader.NextResult` (24.6% of all samples), `GetString` (4.86%), `Read` (4.14%), and native `sqlite3_step` (2.07%). `RecordSearch.SearchFuzzy` was only 0.70% exclusive. `Gen2GcCallback.Finalize` accounted for 5.37%; this suggests, but does not prove, allocation pressure from materializing complete metadata rows because the sample did not measure allocations directly. `WaitHandle` represented 47.2% and is not productive search CPU. The 50,000-record database was 12.9 MiB, so raw disk capacity is not the explanation; row conversion and object materialization dominate.
 
 **Observed:** latency scales approximately with the number of selected candidates, and exact search is also linear because the daemon loads all selected metadata before matching. **Inferred mechanism:** the current data path parses `presentation`, `revision`, and two timestamps for every candidate even though only the top results need complete summaries. **Falsifier:** a future profile showing matcher or SQLite stepping dominant after a projection change would revise this diagnosis.
 
@@ -135,7 +178,7 @@ References:
 
 ### 5.2 Keep `records_by_scope` for now
 
-Schema v1 contains both `UNIQUE(scope_id, key)` and `records_by_scope(scope_id)`. `EXPLAIN QUERY PLAN` showed that selected-scope search and ordered scope listing already use the implicit unique `(scope_id, key)` index by its leftmost prefix. The narrower `records_by_scope` index was selected as a covering index for `COUNT(*) WHERE scope_id = ?`.
+Schema v1 contains both `UNIQUE(scope_id, key)` and `records_by_scope(scope_id)`. With `records_by_scope` removed, `EXPLAIN QUERY PLAN` showed that selected-scope search, ordered scope listing, and scope count fall back to the implicit unique `(scope_id, key)` index through its leftmost prefix. With the schema unchanged, SQLite selects the narrower `records_by_scope` index, including as a covering index for `COUNT(*) WHERE scope_id = ?`.
 
 Two runs per condition on cloned 50,000-record databases compared keeping versus dropping the index. Median set was 1.39–1.40 ms with it and 1.38–1.39 ms without it; delete was 1.35–1.37 ms with it and 1.35–1.39 ms without it; scope count was 0.09–0.10 ms in both conditions. There is no demonstrated material win, while removing it would change schema validation and discard the count-specific covering index. It remains in place. This is a measured rejection of speculative cleanup, not proof that the index is universally optimal.
 
