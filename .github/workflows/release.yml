@@ -436,6 +436,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          WINDOWS_SIGNING_CONFIGURED: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 != '' && secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD != '' }}
         shell: bash
         run: |
           if [[ "${{ needs.metadata.outputs.is_prerelease }}" == "true" ]]; then
@@ -448,6 +449,33 @@ jobs:
             gh release edit "${GITHUB_REF_NAME}" "${release_flags[@]}"
           else
             gh release create "${GITHUB_REF_NAME}" dist/* --verify-tag --generate-notes --title "scrap ${GITHUB_REF_NAME}" "${release_flags[@]}"
+          fi
+
+          # Publish the verified signing state beside every release instead of relying on CI logs.
+          # 将已验证的签名状态写入每个 Release，而不是要求用户翻阅 CI 日志。
+          notes_file="$RUNNER_TEMP/release-notes.md"
+          gh release view "${GITHUB_REF_NAME}" --json body --jq .body > "$notes_file"
+          if ! grep -q '^## Windows trust status / Windows 信任状态$' "$notes_file"; then
+            if [[ "$WINDOWS_SIGNING_CONFIGURED" == "true" ]]; then
+              cat >> "$notes_file" <<'EOF'
+
+          ## Windows trust status / Windows 信任状态
+
+          Windows executables and the MSI were Authenticode-signed, RFC 3161-timestamped, and verified by this release workflow. SmartScreen prompts can still depend on publisher reputation.
+
+          Windows 可执行文件与 MSI 已完成 Authenticode 签名、RFC 3161 时间戳和发布工作流验证；SmartScreen 是否提示仍可能取决于发布者信誉。
+          EOF
+            else
+              cat >> "$notes_file" <<'EOF'
+
+          ## Windows trust status / Windows 信任状态
+
+          This Windows MSI is a real per-user installer and passed automated install/uninstall validation, but it is **unsigned** because no public-trust Authenticode credential is configured. Microsoft Defender SmartScreen may show a warning. Do not disable or bypass Windows protection; verify the SHA-256 checksum, or wait for a future publicly signed/Store-distributed build.
+
+          本 Windows MSI 是真实的当前用户安装程序，并已通过自动安装/卸载验证；但仓库尚未配置公众信任的 Authenticode 凭据，因此该版本**未签名**，Microsoft Defender SmartScreen 仍可能提示。请勿关闭或绕过 Windows 防护；可以先核对 SHA-256 校验和，或等待后续公众签名/商店分发版本。
+          EOF
+            fi
+            gh release edit "${GITHUB_REF_NAME}" --notes-file "$notes_file"
           fi
 
           installer="scrap-v${{ needs.metadata.outputs.version }}-win-x64.msi"
