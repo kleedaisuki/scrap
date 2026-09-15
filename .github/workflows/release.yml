@@ -97,9 +97,55 @@ jobs:
         run: dotnet --info
       - name: Restore locked runtime assets
         run: dotnet restore Scrap.slnx --locked-mode
+      - name: Configure optional Authenticode signing
+        if: runner.os == 'Windows'
+        id: signing
+        shell: pwsh
+        env:
+          # Both secrets must be configured or the release remains explicitly unsigned.
+          WINDOWS_SIGNING_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
+          WINDOWS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          $hasCertificate = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERTIFICATE_BASE64)
+          $hasPassword = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERTIFICATE_PASSWORD)
+          if ($hasCertificate -xor $hasPassword) {
+            throw "Authenticode signing is partially configured. Set both WINDOWS_SIGNING_CERTIFICATE_BASE64 and WINDOWS_SIGNING_CERTIFICATE_PASSWORD secrets, or neither."
+          }
+          if (-not $hasCertificate) {
+            "enabled=false" >> $env:GITHUB_OUTPUT
+            Write-Host "::notice::Authenticode secrets are absent; Windows artifacts will be published unsigned and may trigger SmartScreen."
+            exit 0
+          }
+
+          try {
+            $certificateBytes = [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERTIFICATE_BASE64)
+          }
+          catch {
+            throw "WINDOWS_SIGNING_CERTIFICATE_BASE64 is not valid Base64."
+          }
+          $certificatePath = Join-Path $env:RUNNER_TEMP "scrap-release-signing.pfx"
+          [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
+          $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter signtool.exe -File -Recurse |
+            Where-Object FullName -Like "*\x64\signtool.exe" |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if ($null -eq $signTool) { throw "The Windows runner does not provide an x64 signtool.exe." }
+
+          "SCRAP_SIGNTOOL_PATH=$($signTool.FullName)" >> $env:GITHUB_ENV
+          "SCRAP_SIGN_PFX_PATH=$certificatePath" >> $env:GITHUB_ENV
+          "enabled=true" >> $env:GITHUB_OUTPUT
       - name: Build self-contained package
         shell: pwsh
+        env:
+          SCRAP_SIGN_PFX_PASSWORD: ${{ runner.os == 'Windows' && secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD || '' }}
         run: ./build/package.ps1 -RuntimeIdentifier "${{ matrix.rid }}" -Version "${{ needs.metadata.outputs.version }}" -OutputDirectory artifacts
+      - name: Remove signing certificate
+        if: runner.os == 'Windows' && always()
+        shell: pwsh
+        run: |
+          if (-not [string]::IsNullOrWhiteSpace($env:SCRAP_SIGN_PFX_PATH)) {
+            Remove-Item -LiteralPath $env:SCRAP_SIGN_PFX_PATH -Force -ErrorAction SilentlyContinue
+          }
       - name: Smoke-test CLI
         shell: pwsh
         run: |
@@ -196,38 +242,92 @@ jobs:
           }
           & "$payload/scrap$suffix" daemon shutdown
           if ($LASTEXITCODE -ne 0) { throw "daemon shutdown smoke test failed." }
-      - name: Smoke-test Windows installer contract
+      - name: Verify Windows installer artifact
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
-          $package = "smoke/scrap-v${{ needs.metadata.outputs.version }}-${{ matrix.rid }}"
-          $scrapRoot = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".scrap"
-          $binDirectory = Join-Path $scrapRoot "bin"
+          $msi = "artifacts/scrap-v${{ needs.metadata.outputs.version }}-${{ matrix.rid }}.msi"
+          $checksum = "$msi.sha256"
+          if (-not (Test-Path -LiteralPath $msi -PathType Leaf)) { throw "Missing Windows MSI installer: $msi" }
+          if (-not (Test-Path -LiteralPath $checksum -PathType Leaf)) { throw "Missing Windows MSI checksum: $checksum" }
+          $declaredHash = ((Get-Content -LiteralPath $checksum -Raw).Trim() -split '\s+')[0]
+          $actualHash = (Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash
+          if ($declaredHash -ne $actualHash) { throw "Windows MSI checksum verification failed." }
+
+          $windowsInstaller = New-Object -ComObject WindowsInstaller.Installer
+          $database = $windowsInstaller.GetType().InvokeMember(
+            "OpenDatabase",
+            "InvokeMethod",
+            $null,
+            $windowsInstaller,
+            @((Resolve-Path $msi).Path, 0)
+          )
+          if ($null -eq $database) { throw "Windows Installer could not open the generated MSI." }
+          if ("${{ steps.signing.outputs.enabled }}" -eq "true") {
+            & $env:SCRAP_SIGNTOOL_PATH verify /pa /all $msi
+            if ($LASTEXITCODE -ne 0) { throw "Authenticode verification failed for the signed MSI." }
+          }
+          else {
+            Write-Host "::notice::Verified MSI structure and checksum; Authenticode verification was skipped because signing is not configured."
+          }
+      - name: Smoke-test Windows MSI install and uninstall
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $msi = (Resolve-Path "artifacts/scrap-v${{ needs.metadata.outputs.version }}-${{ matrix.rid }}.msi").Path
+          $logDirectory = Join-Path $PWD "artifacts/installer-smoke"
+          $installLog = Join-Path $logDirectory "install.log"
+          $uninstallLog = Join-Path $logDirectory "uninstall.log"
+          $installDirectory = Join-Path $env:LOCALAPPDATA "Scrap"
+          $shortcut = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Scrap\Scrap.lnk"
+          $dataDirectory = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".scrap"
+          $sentinel = Join-Path $dataDirectory "msi-data-must-survive"
           $originalUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
           if ($null -eq $originalUserPath) { $originalUserPath = "" }
-          Remove-Item $scrapRoot -Recurse -Force -ErrorAction SilentlyContinue
-          & "$package/install.ps1"
-          if (Test-Path "$scrapRoot/data") { throw "Installer must not initialize data." }
-          & "$package/uninstall.ps1"
-          if (Test-Path "$scrapRoot/data") { throw "Fresh uninstall started the daemon or initialized data." }
-          & "$package/install.ps1"
-          if (Test-Path "$scrapRoot/data") { throw "Reinstall initialized data." }
-          New-Item -ItemType Directory "$scrapRoot/data" | Out-Null
-          Set-Content "$scrapRoot/data/sentinel" "keep"
-          & "$package/install.ps1"
-          $installedUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
-          if ($null -eq $installedUserPath) { $installedUserPath = "" }
-          $pathCount = @($installedUserPath.Split(';') | Where-Object { $_ -eq $binDirectory }).Count
-          if ($pathCount -ne 1) { throw "Installer did not manage PATH idempotently." }
-          & "$package/uninstall.ps1"
-          & "$package/uninstall.ps1"
+          New-Item -ItemType Directory -Path $logDirectory, $dataDirectory -Force | Out-Null
+          Set-Content -LiteralPath $sentinel -Value "keep"
+
+          $failure = $null
+          try {
+            & msiexec.exe /i $msi /qn /norestart "/l*v" $installLog
+            if ($LASTEXITCODE -notin @(0, 3010)) { throw "MSI installation failed with exit code $LASTEXITCODE." }
+            foreach ($program in @("scrap.exe", "scrapd.exe", "scrap-gui.exe")) {
+              if (-not (Test-Path -LiteralPath (Join-Path $installDirectory $program) -PathType Leaf)) {
+                throw "MSI did not install $program."
+              }
+            }
+            if (-not (Test-Path -LiteralPath $shortcut -PathType Leaf)) { throw "MSI did not create the Start menu shortcut." }
+            $installedUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+            $installedPathEntries = @($installedUserPath -split ';' | ForEach-Object { $_.TrimEnd('\') })
+            if ($installDirectory.TrimEnd('\') -notin $installedPathEntries) { throw "MSI did not add its install directory to the user PATH." }
+          }
+          catch {
+            $failure = $_
+          }
+          finally {
+            if (Test-Path -LiteralPath $installDirectory) {
+              & msiexec.exe /x $msi /qn /norestart "/l*v" $uninstallLog
+              if ($LASTEXITCODE -notin @(0, 3010) -and $null -eq $failure) {
+                $failure = "MSI uninstall failed with exit code $LASTEXITCODE."
+              }
+            }
+          }
+
+          if (Test-Path -LiteralPath $installDirectory) { throw "MSI uninstall left the install directory behind." }
+          if (Test-Path -LiteralPath $shortcut) { throw "MSI uninstall left the Start menu shortcut behind." }
           $restoredUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
           if ($null -eq $restoredUserPath) { $restoredUserPath = "" }
-          if ($restoredUserPath -ne $originalUserPath) { throw "Uninstall did not restore PATH." }
-          if (-not (Test-Path "$scrapRoot/data/sentinel")) { throw "Normal uninstall removed data." }
-          & "$package/install.ps1" -NoPath
-          & "$package/uninstall.ps1" -Purge -Yes -NoPath
-          if (Test-Path $scrapRoot) { throw "Purge left the scrap root behind." }
+          if ($restoredUserPath -ne $originalUserPath) { throw "MSI uninstall did not restore the user PATH." }
+          if (-not (Test-Path -LiteralPath $sentinel -PathType Leaf)) { throw "MSI uninstall removed user data." }
+          if ($null -ne $failure) { throw $failure }
+      - name: Upload Windows Installer diagnostic logs
+        if: runner.os == 'Windows' && always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: installer-logs-${{ matrix.rid }}
+          path: artifacts/installer-smoke/*.log
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Smoke-test Unix installer contract
         if: runner.os != 'Windows'
         shell: bash
@@ -288,9 +388,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: release-${{ matrix.rid }}
-          path: |
-            artifacts/scrap-v${{ needs.metadata.outputs.version }}-${{ matrix.rid }}.${{ matrix.extension }}
-            artifacts/scrap-v${{ needs.metadata.outputs.version }}-${{ matrix.rid }}.${{ matrix.extension }}.sha256
+          path: artifacts/scrap-v${{ needs.metadata.outputs.version }}-${{ matrix.rid }}.*
           if-no-files-found: error
           retention-days: 7
 
@@ -313,7 +411,7 @@ jobs:
         run: |
           cd dist
           sha256sum --check scrap-*.sha256
-          sha256sum scrap-*.zip scrap-*.tar.gz > SHA256SUMS
+          sha256sum scrap-*.zip scrap-*.tar.gz scrap-*.msi > SHA256SUMS
           sha256sum --check SHA256SUMS
       - name: Create or update GitHub Release
         env:
@@ -332,3 +430,12 @@ jobs:
           else
             gh release create "${GITHUB_REF_NAME}" dist/* --verify-tag --generate-notes --title "scrap ${GITHUB_REF_NAME}" "${release_flags[@]}"
           fi
+
+          installer="scrap-v${{ needs.metadata.outputs.version }}-win-x64.msi"
+          mkdir released-installer
+          gh release download "${GITHUB_REF_NAME}" \
+            --pattern "$installer" \
+            --pattern "$installer.sha256" \
+            --dir released-installer \
+            --clobber
+          (cd released-installer && sha256sum --check "$installer.sha256")

@@ -5,3 +5,15 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # 站点依赖独立成组，保持 Astro/pnpm 更新可审查。Group site dependency updates for reviewability.
+  - package-ecosystem: npm
+    directory: /website
+    schedule:
+      interval: weekly
+    groups:
+      release-site:
+        patterns: ["*"]
