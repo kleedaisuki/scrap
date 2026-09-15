@@ -45,7 +45,7 @@ internal static class Program
     /// <summary>Runs the complete isolated baseline. / 运行完整的隔离基线。</summary>
     private static async Task<int> RunBaselineAsync(string rootArgument, string outputArgument)
     {
-        string root = Benchmarks.RequireIsolatedRoot(rootArgument);
+        string root = Benchmarks.RequireFreshRunRoot(rootArgument);
         string output = Benchmarks.RequireIsolatedFile(outputArgument);
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);
         var result = new BenchmarkReport(
@@ -64,17 +64,20 @@ internal static class Program
     /// <summary>Runs only process readiness and IPC measurements. / 仅运行进程就绪与 IPC 测量。</summary>
     private static async Task<int> RunStartupAsync(string root, string output)
     {
-        StartupResults result = await Benchmarks.MeasureStartupsAsync(Benchmarks.RequireIsolatedRoot(root));
-        await Benchmarks.WriteJsonAsync(output, result);
+        string runRoot = Benchmarks.RequireFreshRunRoot(root);
+        string outputPath = Benchmarks.RequireIsolatedFile(output);
+        StartupResults result = await Benchmarks.MeasureStartupsAsync(runRoot);
+        await Benchmarks.WriteJsonAsync(outputPath, result);
         return 0;
     }
 
     /// <summary>Measures idle and sustained-search daemon resources. / 测量空闲与持续搜索时的守护进程资源。</summary>
     private static async Task<int> RunResourcesAsync(string rootArgument, string output)
     {
-        string root = Benchmarks.RequireIsolatedRoot(rootArgument);
+        string root = Benchmarks.RequireFreshRunRoot(rootArgument);
+        string outputPath = Benchmarks.RequireIsolatedFile(output);
         ResourceFootprintReport result = await Benchmarks.MeasureResourceFootprintAsync(root);
-        await Benchmarks.WriteJsonAsync(output, result);
+        await Benchmarks.WriteJsonAsync(outputPath, result);
         return 0;
     }
 

@@ -49,6 +49,20 @@ internal static partial class Benchmarks
         return candidate;
     }
 
+    /// <summary>Creates or accepts an empty isolated run root, rejecting prior contents without deleting them. / 创建或接受空的隔离运行根目录；发现既有内容时拒绝且不删除。</summary>
+    internal static string RequireFreshRunRoot(string root)
+    {
+        string candidate = RequireIsolatedRoot(root);
+        if (Directory.EnumerateFileSystemEntries(candidate).Any())
+        {
+            throw new ArgumentException(
+                $"Run root '{candidate}' is not empty. Choose a new .temp/.cache run root; existing data was left untouched.",
+                nameof(root));
+        }
+
+        return candidate;
+    }
+
     /// <summary>Rejects a benchmark file outside this repository's .temp or .cache directory. / 拒绝仓库 .temp 或 .cache 之外的基准文件。</summary>
     internal static string RequireIsolatedFile(string path)
     {

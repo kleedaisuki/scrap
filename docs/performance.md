@@ -27,30 +27,36 @@ The isolated benchmark harness and every generated profile, trace, and JSON resu
 
 ### Re-running the maintained harness
 
-Run from the repository root with the locked .NET SDK. The required root and every output file are deliberately restricted to this repository's `.temp/` or `.cache/` trees, so the tool cannot open the real `~/.scrap` profile. A complete run creates fresh profiles and can take several minutes:
+Run from the repository root with the locked .NET SDK. Every generated root and output is deliberately restricted to this repository's `.temp/` or `.cache/` trees, so the tool cannot open the real `~/.scrap` profile. Fixture-creating modes (`baseline`, `startup`, and `resources`) require a nonexistent or empty run root and never clear previous data. Give each run a unique root; a complete baseline can take several minutes:
 
 ```powershell
 dotnet restore tools/Scrap.Perf/Scrap.Perf.csproj --locked-mode
-dotnet run --no-restore -c Release --project tools/Scrap.Perf -- baseline .temp/perf-repro .temp/perf-repro/results.json
+# Fast preflight smoke: proves a non-empty root is rejected without deletion.
+pwsh -File tools/Scrap.Perf/Test-RunRootGuard.ps1
+$run = ".temp/perf-repro-$([guid]::NewGuid().ToString('N'))"
+dotnet run --no-restore -c Release --project tools/Scrap.Perf -- baseline $run "$run/results.json"
 ```
 
 The explicit modes permit focused reruns. `baseline` first creates the 50,000-record fixture used by the latter commands:
 
 ```powershell
 # Process readiness and persistent IPC only (Windows uses the real DPAPI provider).
-dotnet run --no-restore -c Release --project tools/Scrap.Perf -- startup .temp/perf-startup .temp/perf-startup/results.json
+$startupRun = ".temp/perf-startup-$([guid]::NewGuid().ToString('N'))"
+dotnet run --no-restore -c Release --project tools/Scrap.Perf -- startup $startupRun "$startupRun/results.json"
 
 # Idle and sustained 10k-search daemon memory/CPU (about two minutes).
-dotnet run --no-restore -c Release --project tools/Scrap.Perf -- resources .temp/perf-resources .temp/perf-resources/results.json
+$resourceRun = ".temp/perf-resources-$([guid]::NewGuid().ToString('N'))"
+dotnet run --no-restore -c Release --project tools/Scrap.Perf -- resources $resourceRun "$resourceRun/results.json"
 
 # Current metadata materialization path against the generated 50k database.
-dotnet run --no-restore -c Release --project tools/Scrap.Perf -- metadata .temp/perf-repro/search/search-50000/data/scrap.db .temp/perf-repro/metadata.json
+$db = "$run/search/search-50000/data/scrap.db"
+dotnet run --no-restore -c Release --project tools/Scrap.Perf -- metadata $db "$run/metadata.json"
 
 # Index A/B requires independent database copies because each run writes fixtures.
-Copy-Item .temp/perf-repro/search/search-50000/data/scrap.db .temp/perf-repro/index-keep.db
-Copy-Item .temp/perf-repro/search/search-50000/data/scrap.db .temp/perf-repro/index-drop.db
-dotnet run --no-restore -c Release --project tools/Scrap.Perf -- index .temp/perf-repro/index-keep.db keep .temp/perf-repro/index-keep.json
-dotnet run --no-restore -c Release --project tools/Scrap.Perf -- index .temp/perf-repro/index-drop.db drop .temp/perf-repro/index-drop.json
+Copy-Item $db "$run/index-keep.db"
+Copy-Item $db "$run/index-drop.db"
+dotnet run --no-restore -c Release --project tools/Scrap.Perf -- index "$run/index-keep.db" keep "$run/index-keep.json"
+dotnet run --no-restore -c Release --project tools/Scrap.Perf -- index "$run/index-drop.db" drop "$run/index-drop.json"
 ```
 
 The historical shared-cache A/B cannot be rerun from current `main` alone because that variant was intentionally removed. Its raw outputs are retained beside the baseline; recreating that comparison requires the corresponding pre-change source with `Cache=Shared`. Do not compare a new run directly with the retained numbers as if the host environment were controlled.
