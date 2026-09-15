@@ -70,6 +70,8 @@ Store 数字版本独立记录在 `installer/Scrap.Installer.Store/StoreVersion.
 
 普通 push/PR 使用明确的 CI 假身份与 `Scrap CI Package` 显示名；手动运行工作流才生成生产候选。手动运行前必须配置 repository variables `STORE_IDENTITY_NAME`、`STORE_PUBLISHER`、`STORE_PUBLISHER_DISPLAY_NAME`、`STORE_PRODUCT_DISPLAY_NAME`；最后一项必须是保留名称 `moeSegFault Scrap`。脚本把它同时写入包级 DisplayName 与应用 VisualElements DisplayName，并在解包后精确复核。缺少任何变量会直接拒绝构建，而不会退回 CI 占位值。
 
+手动工作流的 `package_version` 是可选覆盖项；留空时读取受版本控制的 `installer/Scrap.Installer.Store/StoreVersion.txt`。不要在工作流 UI 中复制一个会与版本计数器漂移的默认值。
+
 `build/generate-store-assets.ps1` 从唯一品牌源图生成并验证 MSIX 的 scale/targetsize/unplated 变体及 `store-listing/assets/AppTileIcon-300x300.png`；Store workflow 会拒绝未提交的生成差异。双语一览文案、功能项、截图说明、隐私/年龄分级答案与 `runFullTrust` 审核说明集中在 [`store-listing/`](../store-listing/README.md)。首次提交的 **What's new** 必须完全留空。
 
 在相同候选上运行 WACK，不要用重新构建的“等价包”替代：

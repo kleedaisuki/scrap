@@ -41,9 +41,8 @@ on:
         required: true
         type: string
       package_version:
-        description: Monotonic four-part Store version (revision must be 0)
-        required: true
-        default: "1.0.1.0"
+        description: Optional override; blank uses the checked-in monotonic StoreVersion.txt value
+        required: false
         type: string
 
 concurrency:
