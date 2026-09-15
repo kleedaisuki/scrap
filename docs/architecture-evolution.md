@@ -126,6 +126,7 @@ The current reviewed source artwork is `assets/branding/scrap-icon-source.png`. 
 | Windows apphost and installer | `src/Scrap.Gui/Assets/scrap.ico` |
 | Avalonia window on all platforms | `src/Scrap.Gui/Assets/scrap.png` |
 | Product site | optimized PNGs copied under `website/public/` |
+| Microsoft Store | generated scale/target-size matrix under `installer/Scrap.Installer.Store/Assets/` and the 300×300 listing icon under `store-listing/assets/` |
 
 The mark combines a folded paper scrap, keyhole, and small sparkle while using the platform coral/cream language. It is distinct from the MoeSegFault owner brand.
 
@@ -147,7 +148,7 @@ The build signs Windows executables first and the final MSI second when a truste
 
 An unsigned MSI is still a valid installer but may be blocked or warned about by SmartScreen. Even a newly signed direct download may need publisher reputation. Repository code cannot manufacture a public-trust publisher identity; Microsoft Store distribution is the documented warning-free path. The release workflow therefore makes unsigned state explicit instead of instructing users to bypass Windows protection.
 
-MSIX was considered but not selected for this milestone. Its immutable package and Store integration are attractive, but direct sideloading still requires trusted signing, CLI aliases add manifest/version machinery, and the familiar per-user MSI satisfies the current three-binary installation contract with less special-case infrastructure.
+The direct-download MSI remains available, but a full-package Store MSIX is now the primary path for a Windows installation that Microsoft can sign after certification. It packages the same three entry points, exposes `scrap.exe` through an App Execution Alias, keeps user data outside the immutable package, and uses the Store-assigned identity. Direct MSIX sideloading is deliberately not presented as a trust workaround. The decision, package invariants, installed smoke tests, and certification boundary are maintained in `store-msix-architecture.md`.
 
 ## 7. Product release site
 
@@ -174,7 +175,7 @@ The pinned stylesheet URL is `https://style.moesegfault.dev/v0.1.2/css/all.css`.
 
 ```text
 pull request / main push
-  ├─ .NET locked restore -> Release build -> 179 tests on 3 OSes
+  ├─ .NET locked restore -> Release build -> 184 tests on 3 OSes
   ├─ frozen pnpm install -> Astro check -> Vitest -> static build
   └─ Windows: clean dummy-payload WiX build -> MSI metadata open
 
@@ -209,7 +210,7 @@ Actions are pinned to full commit SHAs. Ordinary jobs have `contents: read`; Pag
 
 Observed validation for this milestone:
 
-- locked .NET restore, Release build, and 179 tests pass;
+- locked .NET restore, Release build, and 184 tests pass;
 - Astro check reports zero diagnostics, Vitest passes, and both locale routes build;
 - all root-relative site assets resolve and CNAME content is exact;
 - clean WiX build produces an MSI that Windows Installer can open;
