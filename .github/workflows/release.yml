@@ -255,13 +255,7 @@ jobs:
           if ($declaredHash -ne $actualHash) { throw "Windows MSI checksum verification failed." }
 
           $windowsInstaller = New-Object -ComObject WindowsInstaller.Installer
-          $database = $windowsInstaller.GetType().InvokeMember(
-            "OpenDatabase",
-            "InvokeMethod",
-            $null,
-            $windowsInstaller,
-            @((Resolve-Path $msi).Path, 0)
-          )
+          $database = $windowsInstaller.OpenDatabase((Resolve-Path $msi).Path, 0)
           if ($null -eq $database) { throw "Windows Installer could not open the generated MSI." }
           if ("${{ steps.signing.outputs.enabled }}" -eq "true") {
             & $env:SCRAP_SIGNTOOL_PATH verify /pa /all $msi

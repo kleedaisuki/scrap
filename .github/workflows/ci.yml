@@ -132,13 +132,7 @@ jobs:
           $msi = Join-Path $output "scrap-v0.0.0-ci-win-x64.msi"
           if (-not (Test-Path -LiteralPath $msi -PathType Leaf)) { throw "WiX build did not produce the expected MSI." }
           $windowsInstaller = New-Object -ComObject WindowsInstaller.Installer
-          $database = $windowsInstaller.GetType().InvokeMember(
-            "OpenDatabase",
-            "InvokeMethod",
-            $null,
-            $windowsInstaller,
-            @($msi, 0)
-          )
+          $database = $windowsInstaller.OpenDatabase($msi, 0)
           if ($null -eq $database) { throw "Windows Installer could not open the CI MSI." }
 
       - name: Parse POSIX release scripts
