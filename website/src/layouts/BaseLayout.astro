@@ -12,7 +12,7 @@ const alternateLocale: Locale = locale === "zh" ? "en" : "zh";
 const localeLabel = locale === "zh" ? "EN" : "中文";
 const canonicalPath = locale === "zh" ? "/" : "/en/";
 const canonical = new URL(canonicalPath, Astro.site);
-const latestRelease = "https://github.com/kleedaisuki/scrap/releases/latest";
+const releasesUrl = "https://github.com/kleedaisuki/scrap/releases";
 ---
 
 <!doctype html>
@@ -90,7 +90,7 @@ const latestRelease = "https://github.com/kleedaisuki/scrap/releases/latest";
       <p>{copy.footer.line}</p>
       <div class="footer-links">
         <a href="https://github.com/kleedaisuki/scrap">GitHub</a>
-        <a href={latestRelease}>{copy.nav.download}</a>
+        <a href={releasesUrl}>{copy.nav.download}</a>
         <span>{copy.footer.license}</span>
       </div>
     </footer>
