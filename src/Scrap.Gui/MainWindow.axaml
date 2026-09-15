@@ -14,10 +14,10 @@
         </StackPanel>
         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
           <TextBlock Text="{Binding L.Scope}" Classes="accent" VerticalAlignment="Center"/>
-          <ComboBox Width="220" ItemsSource="{Binding Scopes}" SelectedItem="{Binding SelectedScope}" PlaceholderText="{Binding L.ChooseScope}">
+          <ComboBox Width="220" HorizontalContentAlignment="Stretch" ItemsSource="{Binding Scopes}" SelectedItem="{Binding SelectedScope}" PlaceholderText="{Binding L.ChooseScope}">
             <ComboBox.ItemTemplate>
               <DataTemplate x:DataType="models:ScopeSummary">
-                <Grid ColumnDefinitions="*,Auto" Width="190">
+                <Grid ColumnDefinitions="*,Auto">
                   <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
                   <TextBlock Grid.Column="1" Text="{Binding RecordCount}" Classes="muted" Margin="12,0,0,0"/>
                 </Grid>
@@ -59,7 +59,7 @@
           </StackPanel>
           <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
             <TextBlock Text="{Binding L.SearchIn}" Classes="muted" VerticalAlignment="Center"/>
-            <Button Width="180" HorizontalContentAlignment="Stretch" AutomationProperties.Name="{Binding SearchScopeAccessibleName}" ToolTip.Tip="{Binding SearchScopeSummary}">
+            <Button x:Name="SearchScopeButton" Width="180" HorizontalContentAlignment="Stretch" AutomationProperties.Name="{Binding SearchScopeAccessibleName}" ToolTip.Tip="{Binding SearchScopeSummary}">
               <Button.Content>
                 <Grid ColumnDefinitions="*,Auto">
                   <TextBlock Text="{Binding SearchScopeSummary}" TextTrimming="CharacterEllipsis"/>
