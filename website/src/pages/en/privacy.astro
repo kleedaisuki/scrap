@@ -1,0 +1,7 @@
+---
+import PrivacyPage from "../../components/PrivacyPage.astro";
+import { copy } from "../../lib/content";
+import { privacyCopy } from "../../lib/privacy";
+---
+
+<PrivacyPage locale="en" copy={copy.en} policy={privacyCopy.en} />

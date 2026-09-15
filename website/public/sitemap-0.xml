@@ -10,4 +10,14 @@
     <xhtml:link rel="alternate" hreflang="zh-CN" href="https://scrap.moesegfault.dev/" />
     <xhtml:link rel="alternate" hreflang="en" href="https://scrap.moesegfault.dev/en/" />
   </url>
+  <url>
+    <loc>https://scrap.moesegfault.dev/privacy/</loc>
+    <xhtml:link rel="alternate" hreflang="zh-CN" href="https://scrap.moesegfault.dev/privacy/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://scrap.moesegfault.dev/en/privacy/" />
+  </url>
+  <url>
+    <loc>https://scrap.moesegfault.dev/en/privacy/</loc>
+    <xhtml:link rel="alternate" hreflang="zh-CN" href="https://scrap.moesegfault.dev/privacy/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://scrap.moesegfault.dev/en/privacy/" />
+  </url>
 </urlset>

@@ -204,6 +204,29 @@
   .platform-card em { align-self: end; color: var(--moe-color-accent-strong); font-size: .8rem; font-style: normal; font-weight: 800; }
   .download-note { margin-top: 1.3rem; color: var(--moe-color-text-soft); font-size: .78rem; }
   .download-note a { color: var(--moe-color-accent-strong); font-weight: 700; text-decoration: underline; text-underline-offset: .16em; }
+  .legal-page { width: min(calc(100% - 3rem), var(--moe-layout-content)); margin-inline: auto; padding: clamp(4.5rem, 9vw, 8rem) 0; }
+  .legal-hero { max-width: 58rem; }
+  .legal-hero h1 { max-width: 15ch; margin-top: 1rem; font-size: clamp(2.7rem, 6vw, 5.2rem); line-height: 1.02; }
+  .legal-lead { max-width: 50rem; margin-top: 1.6rem; color: var(--moe-color-text-soft); font-size: clamp(1.05rem, 1.8vw, 1.22rem); line-height: 1.8; }
+  .effective-date { margin-top: 1.35rem; color: var(--moe-color-text-soft); font-family: var(--moe-font-family-mono); font-size: .78rem; }
+  .privacy-summary { margin-top: 3.5rem; padding: clamp(1.5rem, 4vw, 2.5rem); border: 1px solid var(--moe-color-border); border-left: .35rem solid var(--moe-color-accent-strong); border-radius: var(--moe-radius-md); background: linear-gradient(135deg, var(--moe-color-surface-strong), var(--moe-color-accent-wash)); box-shadow: var(--moe-shadow-sm); }
+  .privacy-summary h2 { font-size: 1.35rem; }
+  .privacy-summary ul { display: grid; gap: .75rem; margin: 1rem 0 0; padding-left: 1.25rem; }
+  .privacy-summary li::marker, .legal-body li::marker { color: var(--moe-color-accent-strong); }
+  .legal-grid { display: grid; grid-template-columns: minmax(12rem, .32fr) minmax(0, 1fr); align-items: start; gap: clamp(2.5rem, 7vw, 6rem); margin-top: 4.5rem; }
+  .legal-contents { position: sticky; top: 6.25rem; display: grid; gap: .35rem; padding: 1.25rem; border: 1px solid var(--moe-color-border); border-radius: var(--moe-radius-md); background: var(--moe-color-surface); }
+  .legal-contents strong { margin-bottom: .45rem; color: var(--moe-color-heading); font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; }
+  .legal-contents a { padding: .38rem .5rem; border-radius: .45rem; color: var(--moe-color-text-soft); font-size: .78rem; line-height: 1.35; text-decoration: none; }
+  .legal-contents a:hover { color: var(--moe-color-accent-strong); background: var(--moe-color-accent-wash); }
+  .legal-body { max-width: 49rem; }
+  .legal-body section { scroll-margin-top: 7rem; padding-bottom: 3rem; border-bottom: 1px solid var(--moe-color-border); }
+  .legal-body section + section { padding-top: 3rem; }
+  .legal-body h2 { font-size: clamp(1.65rem, 3vw, 2.25rem); line-height: 1.2; }
+  .legal-body p, .legal-body ul { margin: 1rem 0 0; }
+  .legal-body p, .legal-body li { color: var(--moe-color-text-soft); }
+  .legal-body ul { padding-left: 1.25rem; }
+  .legal-body li + li { margin-top: .65rem; }
+  .legal-contact { margin-top: 3rem; }
   footer { display: grid; grid-template-columns: 1fr auto; gap: 1rem 2rem; width: min(calc(100% - 3rem), var(--moe-layout-content)); margin-inline: auto; padding: 3rem 0; border-top: 1px solid var(--moe-color-border); color: var(--moe-color-text-soft); font-size: .85rem; }
   .footer-brand { display: flex; align-items: center; gap: .55rem; color: var(--moe-color-heading); }
   .footer-brand img { border-radius: .4rem; }
@@ -224,6 +247,9 @@
     .feature-grid { grid-template-columns: repeat(2, 1fr); }
     .feature-card, .feature-card.wide { grid-column: span 1; }
     .architecture-notes, .platform-grid { grid-template-columns: 1fr; }
+    .legal-grid { grid-template-columns: 1fr; }
+    .legal-contents { position: static; grid-template-columns: repeat(2, 1fr); }
+    .legal-contents strong { grid-column: 1 / -1; }
     .architecture-map { justify-content: flex-start; }
     .platform-card { min-height: 11rem; }
   }
@@ -241,6 +267,8 @@
     .feature-grid { grid-template-columns: 1fr; }
     .feature-card { min-height: 17rem; }
     .download-section { width: calc(100% - 1rem); padding: 1.35rem; }
+    .legal-page { width: calc(100% - 2rem); padding-top: 4rem; }
+    .legal-contents { grid-template-columns: 1fr; }
     footer { grid-template-columns: 1fr; width: calc(100% - 2rem); }
     footer > p { justify-self: start; }
   }
