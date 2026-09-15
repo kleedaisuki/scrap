@@ -31,6 +31,60 @@ $payloadRoot = Join-Path $packageRoot "payload"
 $isWindowsTarget = $RuntimeIdentifier.StartsWith("win-", [StringComparison]::Ordinal)
 $suffix = if ($isWindowsTarget) { ".exe" } else { "" }
 
+# 仅在明确提供证书时签名；未签名构建不会被伪装成可绕过 SmartScreen。
+# Sign only when a certificate is explicitly supplied; unsigned builds are never presented as SmartScreen-safe.
+function Invoke-CodeSigning {
+    param([Parameter(Mandatory)] [string[]] $Files)
+
+    $signTool = $env:SCRAP_SIGNTOOL_PATH
+    $thumbprint = $env:SCRAP_SIGN_CERT_SHA1
+    $pfxPath = $env:SCRAP_SIGN_PFX_PATH
+    if ([string]::IsNullOrWhiteSpace($signTool)) {
+        Write-Warning "SCRAP_SIGNTOOL_PATH is not configured; Windows artifacts will be unsigned and may trigger SmartScreen."
+        return
+    }
+    if (-not (Test-Path -LiteralPath $signTool -PathType Leaf)) {
+        throw "SCRAP_SIGNTOOL_PATH does not point to a file: $signTool"
+    }
+
+    $arguments = @("sign", "/fd", "SHA256", "/td", "SHA256", "/tr", "http://timestamp.digicert.com")
+    if (-not [string]::IsNullOrWhiteSpace($thumbprint)) {
+        $arguments += @("/sha1", $thumbprint)
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($pfxPath)) {
+        if (-not (Test-Path -LiteralPath $pfxPath -PathType Leaf)) {
+            throw "SCRAP_SIGN_PFX_PATH does not point to a file: $pfxPath"
+        }
+        $arguments += @("/f", $pfxPath)
+        if (-not [string]::IsNullOrWhiteSpace($env:SCRAP_SIGN_PFX_PASSWORD)) {
+            $arguments += @("/p", $env:SCRAP_SIGN_PFX_PASSWORD)
+        }
+    }
+    else {
+        throw "Configure SCRAP_SIGN_CERT_SHA1 or SCRAP_SIGN_PFX_PATH when SCRAP_SIGNTOOL_PATH is set."
+    }
+
+    & $signTool @arguments @Files
+    if ($LASTEXITCODE -ne 0) { throw "Authenticode signing failed." }
+
+    # 立即验证可避免发布“签名命令成功但产物签名不可用”的工件。
+    # Verify immediately so a successful command cannot publish an artifact with an unusable signature.
+    & $signTool verify /pa /all @Files
+    if ($LASTEXITCODE -ne 0) { throw "Authenticode signature verification failed." }
+}
+
+# Windows Installer ProductVersion 只接受数字三元组；发布文件名仍保留完整 SemVer。
+# Windows Installer ProductVersion accepts a numeric triplet; artifact names retain the full SemVer.
+function Get-MsiVersion {
+    param([Parameter(Mandatory)] [string] $ReleaseVersion)
+
+    $numeric = ($ReleaseVersion -split '[+-]', 2)[0]
+    if ($numeric -notmatch '^\d+\.\d+\.\d+$') {
+        throw "Cannot convert release version '$ReleaseVersion' to an MSI ProductVersion."
+    }
+    return $numeric
+}
+
 # 将项目的单文件 apphost 重命名为稳定 userspace 名称；apphost 本身不依赖文件名。
 # Renames the project's single-file apphost to its stable userspace name; apphosts do not depend on their filename.
 # 不把 AssemblyName 作为全局 MSBuild 属性传入，否则它还会污染 ProjectReference 输出。
@@ -80,13 +134,13 @@ try {
     Publish-EntryPoint -Project "src/Scrap.Daemon/Scrap.Daemon.csproj" -BuildName "Scrap.Daemon" -PublicName "scrapd"
     Publish-EntryPoint -Project "src/Scrap.Gui/Scrap.Gui.csproj" -BuildName "Scrap.Gui" -PublicName "scrap-gui"
 
+    if ($isWindowsTarget) {
+        Invoke-CodeSigning -Files (Get-ChildItem -LiteralPath $payloadRoot -Filter "*.exe" -File).FullName
+    }
+
     Copy-Item -LiteralPath (Join-Path $repoRoot "LICENSE") -Destination $packageRoot
     Copy-Item -LiteralPath (Join-Path $repoRoot "THIRD-PARTY-NOTICES.txt") -Destination $packageRoot
-    if ($isWindowsTarget) {
-        Copy-Item -LiteralPath (Join-Path $PSScriptRoot "install.ps1") -Destination $packageRoot
-        Copy-Item -LiteralPath (Join-Path $PSScriptRoot "uninstall.ps1") -Destination $packageRoot
-    }
-    else {
+    if (-not $isWindowsTarget) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot "install.sh") -Destination $packageRoot
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot "uninstall.sh") -Destination $packageRoot
         & chmod 700 (Get-ChildItem -LiteralPath $payloadRoot -File).FullName
@@ -99,6 +153,29 @@ try {
         $archive = Join-Path $outputRoot "$packageName.zip"
         Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
         Compress-Archive -LiteralPath $packageRoot -DestinationPath $archive -CompressionLevel Optimal
+
+        # MSI 是默认面向终端用户的安装体验；ZIP 继续作为便携/排障工件。
+        # MSI is the default end-user installation experience; ZIP remains a portable/diagnostic artifact.
+        $msiVersion = Get-MsiVersion -ReleaseVersion $Version
+        $installerProject = Join-Path $repoRoot "installer/Scrap.Installer.Windows/Scrap.Installer.Windows.wixproj"
+        dotnet build $installerProject `
+            --configuration Release `
+            --output $outputRoot `
+            --no-incremental `
+            -p:ProductVersion=$msiVersion `
+            -p:ReleaseVersion=$Version `
+            -p:RuntimeIdentifier=$RuntimeIdentifier `
+            -p:PayloadDir=$payloadRoot
+        if ($LASTEXITCODE -ne 0) { throw "WiX installer build failed." }
+
+        $msi = Join-Path $outputRoot "$packageName.msi"
+        if (-not (Test-Path -LiteralPath $msi -PathType Leaf)) {
+            throw "Expected MSI was not produced: $msi"
+        }
+        Remove-Item -LiteralPath (Join-Path $outputRoot "$packageName.wixpdb") -Force -ErrorAction SilentlyContinue
+        Invoke-CodeSigning -Files @($msi)
+        $msiHash = (Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash.ToLowerInvariant()
+        [IO.File]::WriteAllText("$msi.sha256", "$msiHash  $([IO.Path]::GetFileName($msi))`n", [Text.UTF8Encoding]::new($false))
     }
     else {
         $archive = Join-Path $outputRoot "$packageName.tar.gz"
@@ -110,6 +187,9 @@ try {
     $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
     $checksum = "$hash  $([IO.Path]::GetFileName($archive))`n"
     [IO.File]::WriteAllText("$archive.sha256", $checksum, [Text.UTF8Encoding]::new($false))
+    if ($isWindowsTarget) {
+        Write-Output $msi
+    }
     Write-Output $archive
 }
 finally {
