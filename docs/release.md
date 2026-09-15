@@ -46,7 +46,7 @@ GitHub Actions 的签名是**可选且诚实可见**的。仓库 secrets 必须�
 
 只配置其中一个会使发布失败；两者都缺失时工作流明确告知 Windows 资产未签名，但仍会验证 MSI 结构与 checksum。两者齐全时，工作流调用 `signtool`，签名 executable 与 MSI，并执行 Authenticode verification。最终 Release notes 会根据同一配置自动写入中英文签名状态；重跑时通过稳定标题去重，不让事实只留在 CI 日志里。
 
-不要承诺“签了就永不弹窗”：SmartScreen 同时评估发布者和文件信誉。Microsoft Artifact Signing Public Trust 当前的实体地域资格不一定覆盖中国大陆发布者；选择它之前必须核实实际签约实体资格。否则采用合格商业 CA 的 Authenticode 证书或 Microsoft Store。详细来源见 [`research-platform-style.md`](research-platform-style.md#5-installer-and-github-release-workflow)。
+不要承诺“签了就永不弹窗”：SmartScreen 同时评估发布者和文件信誉。对中国大陆个人维护者，Azure Artifact Signing 当前不开放；新商业 OV 证书通常还要求硬件密钥或 HSM，因此上面的 PFX lane 只适用于已经持有的可导出合格凭据。当前优先路线是申请免费的 SignPath Foundation 开源签名，同时为无需自购证书、由 Microsoft 重签的 Store MSIX 保留打包路线；两者都需要所有者完成外部身份或项目审批。具体策略与当前资格证据见 [`code-signing-policy.md`](code-signing-policy.md) 和 [`research-platform-style.md`](research-platform-style.md#5-installer-and-github-release-workflow)。
 
 ## 3. Linux 与 macOS 安装
 

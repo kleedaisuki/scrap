@@ -10,5 +10,14 @@
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <Product>Scrap</Product>
+    <Title>Scrap</Title>
+    <AssemblyTitle>Scrap</AssemblyTitle>
+    <Company>MoeSegfault</Company>
+    <Authors>MoeSegfault contributors</Authors>
+    <Description>A local-first, scriptable store for scoped secrets and short text.</Description>
+    <Copyright>Copyright © MoeSegfault contributors 2026</Copyright>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/kleedaisuki/scrap</RepositoryUrl>
   </PropertyGroup>
 </Project>

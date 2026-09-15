@@ -203,6 +203,7 @@
   .platform-card > span:not(.platform-icon) { color: var(--moe-color-text-soft); font-size: .8rem; }
   .platform-card em { align-self: end; color: var(--moe-color-accent-strong); font-size: .8rem; font-style: normal; font-weight: 800; }
   .download-note { margin-top: 1.3rem; color: var(--moe-color-text-soft); font-size: .78rem; }
+  .download-note a { color: var(--moe-color-accent-strong); font-weight: 700; text-decoration: underline; text-underline-offset: .16em; }
   footer { display: grid; grid-template-columns: 1fr auto; gap: 1rem 2rem; width: min(calc(100% - 3rem), var(--moe-layout-content)); margin-inline: auto; padding: 3rem 0; border-top: 1px solid var(--moe-color-border); color: var(--moe-color-text-soft); font-size: .85rem; }
   .footer-brand { display: flex; align-items: center; gap: .55rem; color: var(--moe-color-heading); }
   .footer-brand img { border-radius: .4rem; }

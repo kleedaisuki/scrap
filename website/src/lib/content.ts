@@ -40,6 +40,7 @@ export interface SiteCopy {
     body: string;
     platforms: Array<{ name: string; detail: string; action: string }>;
     footnote: string;
+    signingPolicy: string;
   };
   footer: { line: string; license: string };
 }
@@ -103,6 +104,7 @@ export const copy: Record<Locale, SiteCopy> = {
         { name: "Linux", detail: "x64 · tar.gz", action: "查看 Linux 资产" },
       ],
       footnote: "所有下载均由 GitHub Releases 提供，并附版本说明、SHA-256 校验和与签名状态。未签名版本可能触发 Windows SmartScreen 提示。",
+      signingPolicy: "Code signing policy",
     },
     footer: { line: "在本机，安静地保存重要的值。", license: "GPL-3.0 开源软件" },
   },
@@ -164,6 +166,7 @@ export const copy: Record<Locale, SiteCopy> = {
         { name: "Linux", detail: "x64 · tar.gz", action: "View Linux assets" },
       ],
       footnote: "GitHub Releases provides every download with release notes, SHA-256 checksums, and signing status. Unsigned builds may trigger Windows SmartScreen.",
+      signingPolicy: "Code signing policy",
     },
     footer: { line: "Keep the values that matter, quietly, on your machine.", license: "Open source under GPL-3.0" },
   },
