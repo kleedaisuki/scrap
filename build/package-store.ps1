@@ -84,9 +84,43 @@ try {
         }
     }
     [xml]$packedManifest = Get-Content -LiteralPath (Join-Path $inspectionRoot "AppxManifest.xml") -Raw
-    $packedIdentity = $packedManifest.Package.Identity
-    if ($packedIdentity.Name -cne $IdentityName -or $packedIdentity.Publisher -cne $Publisher -or $packedIdentity.Version -cne $PackageVersion) {
+    $packedNamespaces = New-Object Xml.XmlNamespaceManager($packedManifest.NameTable)
+    $packedNamespaces.AddNamespace("f", "http://schemas.microsoft.com/appx/manifest/foundation/windows10")
+    $packedNamespaces.AddNamespace("uap5", "http://schemas.microsoft.com/appx/manifest/uap/windows10/5")
+    $packedNamespaces.AddNamespace("desktop4", "http://schemas.microsoft.com/appx/manifest/desktop/windows10/4")
+    $packedNamespaces.AddNamespace("rescap", "http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities")
+    $packedIdentity = $packedManifest.SelectSingleNode("/f:Package/f:Identity", $packedNamespaces)
+    if ($packedIdentity.GetAttribute("Name") -cne $IdentityName -or $packedIdentity.GetAttribute("Publisher") -cne $Publisher -or
+        $packedIdentity.GetAttribute("Version") -cne $PackageVersion) {
         throw "Generated MSIX identity does not exactly match the requested Partner Center identity."
+    }
+    $packedDisplayName = $packedManifest.SelectSingleNode("/f:Package/f:Properties/f:PublisherDisplayName", $packedNamespaces)
+    if ($null -eq $packedDisplayName -or $packedDisplayName.InnerText -cne $PublisherDisplayName) {
+        throw "Generated MSIX PublisherDisplayName does not exactly match the requested Partner Center identity."
+    }
+
+    # 清单断言与运行时 smoke 互补：前者防止入口/能力悄然增加，后者证明 Windows 接受这些声明。
+    # Manifest assertions prevent silent entry/capability growth; installed smoke proves Windows accepts the declarations.
+    $capabilities = @($packedManifest.SelectNodes("/f:Package/f:Capabilities/*", $packedNamespaces))
+    if ($capabilities.Count -ne 1 -or $capabilities[0].NamespaceURI -cne $packedNamespaces.LookupNamespace("rescap") -or
+        $capabilities[0].LocalName -cne "Capability" -or $capabilities[0].GetAttribute("Name") -cne "runFullTrust") {
+        throw "Generated MSIX must declare exactly one runFullTrust capability."
+    }
+    $applications = @($packedManifest.SelectNodes("/f:Package/f:Applications/f:Application", $packedNamespaces))
+    if ($applications.Count -ne 1 -or $applications[0].GetAttribute("Executable") -cne "scrap-gui.exe" -or
+        $applications[0].GetAttribute("EntryPoint") -cne "Windows.FullTrustApplication") {
+        throw "Generated MSIX must declare exactly one full-trust scrap-gui application."
+    }
+    $aliases = @($packedManifest.SelectNodes("/f:Package/f:Applications/f:Application/f:Extensions/uap5:Extension[@Category='windows.appExecutionAlias']", $packedNamespaces))
+    $aliasTargets = @($packedManifest.SelectNodes("/f:Package/f:Applications/f:Application/f:Extensions/uap5:Extension/uap5:AppExecutionAlias/uap5:ExecutionAlias", $packedNamespaces))
+    if ($aliases.Count -ne 1 -or $aliases[0].GetAttribute("Executable") -cne "scrap.exe" -or
+        $aliases[0].GetAttribute("EntryPoint") -cne "Windows.FullTrustApplication" -or $aliasTargets.Count -ne 1 -or
+        $aliasTargets[0].GetAttribute("Alias") -cne "scrap.exe" -or $aliasTargets[0].ParentNode.GetAttribute("Subsystem", $packedNamespaces.LookupNamespace("desktop4")) -cne "console") {
+        throw "Generated MSIX must declare exactly one console scrap.exe App Execution Alias."
+    }
+    $rootExecutables = @(Get-ChildItem -LiteralPath $inspectionRoot -Filter "*.exe" -File | ForEach-Object Name | Sort-Object)
+    if (($rootExecutables -join "|") -cne "scrap-gui.exe|scrap.exe|scrapd.exe") {
+        throw "Generated MSIX root must contain exactly scrap-gui.exe, scrap.exe, and scrapd.exe."
     }
 
     $hash = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash.ToLowerInvariant()
