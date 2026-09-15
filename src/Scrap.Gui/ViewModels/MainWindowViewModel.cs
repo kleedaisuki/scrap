@@ -1041,9 +1041,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
                 await _client.CreateScopeAsync(newName, mutationCancellation.Token);
             }
 
-            if (isRename && _selectedSearchScopes.Remove(originalName!))
+            if (isRename)
             {
-                _selectedSearchScopes.Add(newName);
+                ApplyKnownScopeRename(originalName!, newName);
             }
 
             CloseModals();
@@ -1640,6 +1640,41 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
 
         NotifySearchScopeSelectionChanged();
+    }
+
+    /// <summary>
+    /// 在远端 rename 已成功后立即更新本地身份，使后续列表刷新失败也不会留下幽灵筛选项。
+    /// Applies a confirmed remote rename locally so a later list-refresh failure cannot leave a ghost filter identity.
+    /// </summary>
+    private void ApplyKnownScopeRename(string originalName, string newName)
+    {
+        ScopeSummary? original = Scopes.FirstOrDefault(scope =>
+            string.Equals(scope.Name, originalName, StringComparison.Ordinal));
+        if (original is not null)
+        {
+            var renamed = new ScopeSummary(newName, original.RecordCount);
+            int oldIndex = Scopes.IndexOf(original);
+            Scopes.RemoveAt(oldIndex);
+            int newIndex = 0;
+            while (newIndex < Scopes.Count &&
+                   StringComparer.Ordinal.Compare(Scopes[newIndex].Name, newName) < 0)
+            {
+                newIndex++;
+            }
+
+            Scopes.Insert(newIndex, renamed);
+            if (string.Equals(SelectedScope?.Name, originalName, StringComparison.Ordinal))
+            {
+                SelectedScope = renamed;
+            }
+        }
+
+        if (_selectedSearchScopes.Remove(originalName))
+        {
+            _selectedSearchScopes.Add(newName);
+        }
+
+        SynchronizeSearchScopeChoices(Scopes);
     }
 
     private void OnSearchScopeSelectionChanged(SearchScopeChoice choice, bool selected)

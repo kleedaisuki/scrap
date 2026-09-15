@@ -250,6 +250,40 @@ public sealed class MainWindowViewModelTests
     }
 
     /// <summary>
+    /// rename 已提交但刷新失败时，本地目标与检索选择仍必须使用新身份。
+    /// After a committed rename whose refresh fails, local destination and search choices must retain the new identity.
+    /// </summary>
+    [Fact]
+    public async Task ScopeRenameKeepsSearchChoiceConsistentWhenRefreshFails()
+    {
+        using var directory = TestDirectory.Create();
+        var client = new FakeScrapClient
+        {
+            Scopes = [new ScopeSummary("alpha", 1), new ScopeSummary("beta", 1)],
+            FailListScopesAfter = 1,
+        };
+        await using var viewModel = CreateViewModel(
+            client,
+            new UserPreferenceStore(Path.Combine(directory.Path, "preferences.json")));
+
+        await viewModel.InitializeAsync();
+        Assert.Single(viewModel.SearchScopeChoices, choice => choice.Name == "alpha").IsSelected = true;
+        await WaitUntilAsync(() => client.SearchRequests[^1].Scopes.SequenceEqual(["alpha"]));
+
+        viewModel.OpenRenameScopeCommand.Execute(null);
+        viewModel.ScopeNameInput = "renamed";
+        viewModel.SaveScopeCommand.Execute(null);
+        await WaitUntilAsync(() => !viewModel.IsBusy && viewModel.HasError);
+
+        Assert.Equal("renamed", viewModel.SelectedScope?.Name);
+        Assert.DoesNotContain(viewModel.SearchScopeChoices, choice => choice.Name == "alpha");
+        Assert.True(Assert.Single(viewModel.SearchScopeChoices, choice => choice.Name == "renamed").IsSelected);
+
+        Assert.Single(viewModel.SearchScopeChoices, choice => choice.Name == "beta").IsSelected = true;
+        await WaitUntilAsync(() => client.SearchRequests[^1].Scopes.SequenceEqual(["beta", "renamed"]));
+    }
+
+    /// <summary>
     /// 全范围结果存在同名 key 时，保存后必须按完整身份重新选择目标记录。
     /// After saving among duplicate keys in an all-scope result, the target must be reselected by complete identity.
     /// </summary>
@@ -325,6 +359,7 @@ internal sealed class FakeScrapClient : IScrapClient
     private readonly object _gate = new();
     private readonly List<RecordSearchRequest> _searchRequests = [];
     private readonly List<(string Scope, string Key)> _getRecordCalls = [];
+    private int _listScopesCalls;
 
     /// <summary>列举结果。Scope-list result.</summary>
     internal IReadOnlyList<ScopeSummary> Scopes { get; init; } = [];
@@ -334,6 +369,9 @@ internal sealed class FakeScrapClient : IScrapClient
 
     /// <summary>详情结果。Record-detail result.</summary>
     internal RecordDetails? Record { get; init; }
+
+    /// <summary>此调用次数之后让 scope 列举失败；默认永不失败。Fail scope listing after this many calls; never fail by default.</summary>
+    internal int FailListScopesAfter { get; init; } = int.MaxValue;
 
     /// <summary>线程安全的搜索请求快照。Thread-safe snapshot of search requests.</summary>
     internal IReadOnlyList<RecordSearchRequest> SearchRequests
@@ -360,7 +398,17 @@ internal sealed class FakeScrapClient : IScrapClient
     }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<ScopeSummary>> ListScopesAsync(CancellationToken cancellationToken) => Task.FromResult(Scopes);
+    public Task<IReadOnlyList<ScopeSummary>> ListScopesAsync(CancellationToken cancellationToken)
+    {
+        if (Interlocked.Increment(ref _listScopesCalls) > FailListScopesAfter)
+        {
+            return Task.FromException<IReadOnlyList<ScopeSummary>>(new ScrapClientException(
+                ScrapClientErrorKind.DaemonUnavailable,
+                "Injected scope refresh failure."));
+        }
+
+        return Task.FromResult(Scopes);
+    }
 
     /// <inheritdoc />
     public Task CreateScopeAsync(string name, CancellationToken cancellationToken) => Task.CompletedTask;
