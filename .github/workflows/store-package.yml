@@ -10,6 +10,11 @@ on:
       - "installer/Scrap.Installer.Store/**"
       - "build/Packaging.Common.ps1"
       - "build/package-store.ps1"
+      - "build/generate-store-assets.ps1"
+      - "build/run-store-certification.ps1"
+      - "build/capture-screenshots.ps1"
+      - "tools/Scrap.Screenshot/**"
+      - "store-listing/**"
       - ".github/workflows/store-package.yml"
       - "LICENSE"
       - "THIRD-PARTY-NOTICES.txt"
@@ -21,6 +26,11 @@ on:
       - "installer/Scrap.Installer.Store/**"
       - "build/Packaging.Common.ps1"
       - "build/package-store.ps1"
+      - "build/generate-store-assets.ps1"
+      - "build/run-store-certification.ps1"
+      - "build/capture-screenshots.ps1"
+      - "tools/Scrap.Screenshot/**"
+      - "store-listing/**"
       - ".github/workflows/store-package.yml"
       - "LICENSE"
       - "THIRD-PARTY-NOTICES.txt"
@@ -54,6 +64,7 @@ jobs:
       STORE_IDENTITY_NAME: ${{ github.event_name == 'workflow_dispatch' && vars.STORE_IDENTITY_NAME || 'MoeSegfault.Scrap.CI' }}
       STORE_PUBLISHER: ${{ github.event_name == 'workflow_dispatch' && vars.STORE_PUBLISHER || 'CN=Scrap Store CI' }}
       STORE_PUBLISHER_DISPLAY_NAME: ${{ github.event_name == 'workflow_dispatch' && vars.STORE_PUBLISHER_DISPLAY_NAME || 'MoeSegfault CI' }}
+      STORE_PRODUCT_DISPLAY_NAME: ${{ github.event_name == 'workflow_dispatch' && vars.STORE_PRODUCT_DISPLAY_NAME || 'Scrap CI Package' }}
       STORE_RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.release_version || format('0.0.0-ci.{0}', github.run_number) }}
       STORE_PACKAGE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.package_version || '' }}
     steps:
@@ -76,20 +87,25 @@ jobs:
           PARTNER_IDENTITY_NAME: ${{ vars.STORE_IDENTITY_NAME }}
           PARTNER_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
           PARTNER_PUBLISHER_DISPLAY_NAME: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
+          PARTNER_PRODUCT_DISPLAY_NAME: ${{ vars.STORE_PRODUCT_DISPLAY_NAME }}
         run: |
           $missing = @(@(
             @{ Name = "STORE_IDENTITY_NAME"; Value = $env:PARTNER_IDENTITY_NAME },
             @{ Name = "STORE_PUBLISHER"; Value = $env:PARTNER_PUBLISHER },
-            @{ Name = "STORE_PUBLISHER_DISPLAY_NAME"; Value = $env:PARTNER_PUBLISHER_DISPLAY_NAME }
+            @{ Name = "STORE_PUBLISHER_DISPLAY_NAME"; Value = $env:PARTNER_PUBLISHER_DISPLAY_NAME },
+            @{ Name = "STORE_PRODUCT_DISPLAY_NAME"; Value = $env:PARTNER_PRODUCT_DISPLAY_NAME }
           ) | Where-Object { [string]::IsNullOrWhiteSpace($_.Value) })
           if ($missing.Count -ne 0) {
             throw "Manual Store candidates require exact Partner Center repository variables: $($missing.Name -join ', ')."
+          }
+          if ($env:PARTNER_PRODUCT_DISPLAY_NAME -cne "moeSegFault Scrap") {
+            throw "STORE_PRODUCT_DISPLAY_NAME must exactly match the reserved title 'moeSegFault Scrap'."
           }
 
       - name: Parse packaging scripts with PowerShell 7 and 5.1
         shell: pwsh
         run: |
-          $scripts = @("build/Packaging.Common.ps1", "build/package-store.ps1")
+          $scripts = @("build/Packaging.Common.ps1", "build/package-store.ps1", "build/generate-store-assets.ps1", "build/run-store-certification.ps1", "build/capture-screenshots.ps1")
           foreach ($script in $scripts) {
             $tokens = $null
             $errors = $null
@@ -97,7 +113,7 @@ jobs:
             if ($errors.Count -ne 0) { $errors | ForEach-Object { Write-Error $_ }; throw "PowerShell 7 parse failed." }
           }
           & powershell.exe -NoProfile -Command {
-            foreach ($script in @("build/Packaging.Common.ps1", "build/package-store.ps1")) {
+            foreach ($script in @("build/Packaging.Common.ps1", "build/package-store.ps1", "build/generate-store-assets.ps1", "build/run-store-certification.ps1", "build/capture-screenshots.ps1")) {
               $tokens = $null
               $errors = $null
               [void][Management.Automation.Language.Parser]::ParseFile((Resolve-Path $script), [ref]$tokens, [ref]$errors)
@@ -110,11 +126,18 @@ jobs:
         id: package
         shell: pwsh
         run: |
+          ./build/generate-store-assets.ps1
+          $generatedChanges = @(git status --short -- installer/Scrap.Installer.Store/Assets store-listing/assets)
+          if ($generatedChanges.Count -ne 0) {
+            $generatedChanges | Write-Error
+            throw "Generated Store assets differ from the checked-in canonical output."
+          }
           $output = Join-Path $env:RUNNER_TEMP "store-output"
           $arguments = @{
             IdentityName = $env:STORE_IDENTITY_NAME
             Publisher = $env:STORE_PUBLISHER
             PublisherDisplayName = $env:STORE_PUBLISHER_DISPLAY_NAME
+            ProductDisplayName = $env:STORE_PRODUCT_DISPLAY_NAME
             ReleaseVersion = $env:STORE_RELEASE_VERSION
             OutputDirectory = $output
           }
@@ -129,6 +152,44 @@ jobs:
           }
           "package=$package" >> $env:GITHUB_OUTPUT
           "sidecar=$package.sha256" >> $env:GITHUB_OUTPUT
+
+      - name: Capture and validate Store listing screenshots
+        shell: pwsh
+        run: |
+          $output = Join-Path $env:RUNNER_TEMP "store-listing-screenshots"
+          ./build/capture-screenshots.ps1 -OutputDirectory $output
+          Add-Type -AssemblyName System.Drawing
+          $expected = @(
+            "zh-CN/01-all-scopes-masked.png",
+            "zh-CN/02-multi-scope-subset.png",
+            "zh-CN/03-create-record.png",
+            "zh-CN/04-temporary-reveal.png",
+            "en-US/01-all-scopes-masked.png",
+            "en-US/02-multi-scope-subset.png",
+            "en-US/03-create-record.png",
+            "en-US/04-temporary-reveal.png"
+          )
+          $actual = @(Get-ChildItem -LiteralPath $output -Recurse -Filter "*.png" -File)
+          if ($actual.Count -ne $expected.Count) { throw "Expected exactly 8 Store screenshots, found $($actual.Count)." }
+          $committedActual = @(Get-ChildItem -LiteralPath "store-listing/screenshots" -Recurse -Filter "*.png" -File)
+          if ($committedActual.Count -ne $expected.Count) { throw "Expected exactly 8 committed Store screenshots, found $($committedActual.Count)." }
+          foreach ($relative in $expected) {
+            $generated = Join-Path $output $relative
+            $committed = Join-Path "store-listing/screenshots" $relative
+            if (-not (Test-Path -LiteralPath $generated -PathType Leaf) -or -not (Test-Path -LiteralPath $committed -PathType Leaf)) {
+              throw "Missing generated or committed Store screenshot: $relative"
+            }
+            foreach ($imagePath in @($generated, $committed)) {
+              $image = [Drawing.Image]::FromFile($imagePath)
+              try {
+                if ($image.RawFormat.Guid -ne [Drawing.Imaging.ImageFormat]::Png.Guid -or $image.Width -ne 1366 -or $image.Height -ne 768) {
+                  throw "Store screenshot must be a 1366x768 PNG: $imagePath"
+                }
+              }
+              finally { $image.Dispose() }
+              if ((Get-Item -LiteralPath $imagePath).Length -gt 50MB) { throw "Store screenshot exceeds 50 MB: $imagePath" }
+            }
+          }
 
       - name: Sign, install, and exercise an ephemeral test copy
         shell: pwsh
@@ -244,5 +305,16 @@ jobs:
           path: |
             ${{ steps.package.outputs.package }}
             ${{ steps.package.outputs.sidecar }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Store listing kit
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: microsoft-store-listing-kit
+          path: |
+            ${{ runner.temp }}/store-listing-screenshots
+            store-listing/**/*.md
+            store-listing/assets/AppTileIcon-300x300.png
           if-no-files-found: error
           retention-days: 14

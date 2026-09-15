@@ -16,7 +16,7 @@
     Version="1.0.1.0"
     ProcessorArchitecture="x64" />
   <Properties>
-    <DisplayName>Scrap</DisplayName>
+    <DisplayName>Scrap CI Package</DisplayName>
     <PublisherDisplayName>Store Publisher Placeholder</PublisherDisplayName>
     <Description>Local encrypted record store</Description>
     <Logo>Assets\StoreLogo.png</Logo>
@@ -32,7 +32,7 @@
     <Application Id="Scrap" Executable="scrap-gui.exe" EntryPoint="Windows.FullTrustApplication" desktop4:SupportsMultipleInstances="true">
       <uap:VisualElements
         AppListEntry="default"
-        DisplayName="Scrap"
+        DisplayName="Scrap CI Package"
         Description="Local encrypted record store"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
