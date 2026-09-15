@@ -53,7 +53,9 @@ public sealed class SqliteStore
         {
             DataSource = DatabasePath,
             Mode = SqliteOpenMode.ReadWriteCreate,
-            Cache = SqliteCacheMode.Shared,
+            // WAL already supplies reader/writer concurrency; shared-cache changes SQLite locking semantics and is
+            // explicitly discouraged with WAL. / WAL 已提供读写并发；shared-cache 会改变 SQLite 锁语义，且官方
+            // 明确不建议与 WAL 混用。
             ForeignKeys = true,
             DefaultTimeout = Math.Max(1, (int)Math.Ceiling(options.BusyTimeout.TotalSeconds)),
             Pooling = true,

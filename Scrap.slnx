@@ -10,6 +10,9 @@
     <Project Path="src/Scrap.Protocol/Scrap.Protocol.csproj" />
     <Project Path="src/Scrap.Storage.Sqlite/Scrap.Storage.Sqlite.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Scrap.Perf/Scrap.Perf.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Scrap.Cli.Tests/Scrap.Cli.Tests.csproj" />
     <Project Path="tests/Scrap.Daemon.Tests/Scrap.Daemon.Tests.csproj" />

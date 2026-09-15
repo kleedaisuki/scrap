@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <!-- Production internals explicitly expose benchmark seams to this existing friend assembly. / 生产内部实现已向此现有友元程序集公开基准接缝。 -->
+    <AssemblyName>Scrap.Integration.Tests</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Scrap.Client\Scrap.Client.csproj" />
+    <ProjectReference Include="..\..\src\Scrap.Crypto\Scrap.Crypto.csproj" />
+    <ProjectReference Include="..\..\src\Scrap.Daemon\Scrap.Daemon.csproj" />
+    <ProjectReference Include="..\..\src\Scrap.Domain\Scrap.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Scrap.Platform\Scrap.Platform.csproj" />
+    <ProjectReference Include="..\..\src\Scrap.Protocol\Scrap.Protocol.csproj" />
+    <ProjectReference Include="..\..\src\Scrap.Storage.Sqlite\Scrap.Storage.Sqlite.csproj" />
+  </ItemGroup>
+</Project>
