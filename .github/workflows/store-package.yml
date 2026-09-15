@@ -1,0 +1,248 @@
+name: Microsoft Store package
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "Directory.Build.props"
+      - "global.json"
+      - "installer/Scrap.Installer.Store/**"
+      - "build/Packaging.Common.ps1"
+      - "build/package-store.ps1"
+      - ".github/workflows/store-package.yml"
+      - "LICENSE"
+      - "THIRD-PARTY-NOTICES.txt"
+  pull_request:
+    paths:
+      - "src/**"
+      - "Directory.Build.props"
+      - "global.json"
+      - "installer/Scrap.Installer.Store/**"
+      - "build/Packaging.Common.ps1"
+      - "build/package-store.ps1"
+      - ".github/workflows/store-package.yml"
+      - "LICENSE"
+      - "THIRD-PARTY-NOTICES.txt"
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: SemVer embedded in the three executables
+        required: true
+        type: string
+      package_version:
+        description: Monotonic four-part Store version (revision must be 0)
+        required: true
+        default: "1.0.1.0"
+        type: string
+
+concurrency:
+  group: store-package-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  package-and-install:
+    name: Build and install full-package MSIX
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      # CI 身份只服务于临时签名安装测试，绝不能提交 Partner Center。
+      # This CI identity exists only for ephemeral signed-install testing and must never be submitted to Partner Center.
+      STORE_IDENTITY_NAME: ${{ github.event_name == 'workflow_dispatch' && vars.STORE_IDENTITY_NAME || 'MoeSegfault.Scrap.CI' }}
+      STORE_PUBLISHER: ${{ github.event_name == 'workflow_dispatch' && vars.STORE_PUBLISHER || 'CN=Scrap Store CI' }}
+      STORE_PUBLISHER_DISPLAY_NAME: ${{ github.event_name == 'workflow_dispatch' && vars.STORE_PUBLISHER_DISPLAY_NAME || 'MoeSegfault CI' }}
+      STORE_RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.release_version || format('0.0.0-ci.{0}', github.run_number) }}
+      STORE_PACKAGE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.package_version || '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore locked dependencies
+        shell: pwsh
+        run: dotnet restore Scrap.slnx --locked-mode
+
+      - name: Require Partner Center identity for manual candidates
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          PARTNER_IDENTITY_NAME: ${{ vars.STORE_IDENTITY_NAME }}
+          PARTNER_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
+          PARTNER_PUBLISHER_DISPLAY_NAME: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          $missing = @(@(
+            @{ Name = "STORE_IDENTITY_NAME"; Value = $env:PARTNER_IDENTITY_NAME },
+            @{ Name = "STORE_PUBLISHER"; Value = $env:PARTNER_PUBLISHER },
+            @{ Name = "STORE_PUBLISHER_DISPLAY_NAME"; Value = $env:PARTNER_PUBLISHER_DISPLAY_NAME }
+          ) | Where-Object { [string]::IsNullOrWhiteSpace($_.Value) })
+          if ($missing.Count -ne 0) {
+            throw "Manual Store candidates require exact Partner Center repository variables: $($missing.Name -join ', ')."
+          }
+
+      - name: Parse packaging scripts with PowerShell 7 and 5.1
+        shell: pwsh
+        run: |
+          $scripts = @("build/Packaging.Common.ps1", "build/package-store.ps1")
+          foreach ($script in $scripts) {
+            $tokens = $null
+            $errors = $null
+            [void][Management.Automation.Language.Parser]::ParseFile((Resolve-Path $script), [ref]$tokens, [ref]$errors)
+            if ($errors.Count -ne 0) { $errors | ForEach-Object { Write-Error $_ }; throw "PowerShell 7 parse failed." }
+          }
+          & powershell.exe -NoProfile -Command {
+            foreach ($script in @("build/Packaging.Common.ps1", "build/package-store.ps1")) {
+              $tokens = $null
+              $errors = $null
+              [void][Management.Automation.Language.Parser]::ParseFile((Resolve-Path $script), [ref]$tokens, [ref]$errors)
+              if ($errors.Count -ne 0) { $errors | ForEach-Object { Write-Error $_ }; throw "Windows PowerShell 5.1 parse failed." }
+            }
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Windows PowerShell 5.1 validation failed." }
+
+      - name: Build and inspect unsigned Store package
+        id: package
+        shell: pwsh
+        run: |
+          $output = Join-Path $env:RUNNER_TEMP "store-output"
+          $arguments = @{
+            IdentityName = $env:STORE_IDENTITY_NAME
+            Publisher = $env:STORE_PUBLISHER
+            PublisherDisplayName = $env:STORE_PUBLISHER_DISPLAY_NAME
+            ReleaseVersion = $env:STORE_RELEASE_VERSION
+            OutputDirectory = $output
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:STORE_PACKAGE_VERSION)) {
+            $arguments.PackageVersion = $env:STORE_PACKAGE_VERSION
+          }
+          $package = & ./build/package-store.ps1 @arguments |
+            Select-Object -Last 1
+          if (-not (Test-Path -LiteralPath $package -PathType Leaf)) { throw "Store package was not produced." }
+          if ((Get-AuthenticodeSignature -LiteralPath $package).Status -ne "NotSigned") {
+            throw "The Partner Center artifact must remain unsigned."
+          }
+          "package=$package" >> $env:GITHUB_OUTPUT
+          "sidecar=$package.sha256" >> $env:GITHUB_OUTPUT
+
+      - name: Sign, install, and exercise an ephemeral test copy
+        shell: pwsh
+        run: |
+          $unsignedPackage = "${{ steps.package.outputs.package }}"
+          $testPackage = Join-Path $env:RUNNER_TEMP "scrap-store-ephemeral-test.msix"
+          Copy-Item -LiteralPath $unsignedPackage -Destination $testPackage
+          . ./build/Packaging.Common.ps1
+          $signTool = Find-WindowsSdkTool -Name "signtool.exe"
+          $cert = $null
+          $trustedCert = $null
+          $installed = $false
+          $installRoot = $null
+          $scrapRoot = Join-Path $HOME ".scrap"
+          $rootExisted = Test-Path -LiteralPath $scrapRoot
+          $sentinel = Join-Path $scrapRoot "store-ci-persistence-sentinel"
+          $pathBefore = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes([string][Environment]::GetEnvironmentVariable("PATH", "User")))
+
+          try {
+            New-Item -ItemType Directory -Path $scrapRoot -Force | Out-Null
+            [IO.File]::WriteAllText($sentinel, "preserve", [Text.UTF8Encoding]::new($false))
+            $cert = New-SelfSignedCertificate `
+              -Type CodeSigningCert `
+              -Subject $env:STORE_PUBLISHER `
+              -FriendlyName "Scrap ephemeral Store CI" `
+              -KeyExportPolicy NonExportable `
+              -CertStoreLocation Cert:\CurrentUser\My
+            $cerPath = Join-Path $env:RUNNER_TEMP "scrap-store-ci.cer"
+            Export-Certificate -Cert $cert -FilePath $cerPath | Out-Null
+            # AppX deployment validates trust in the machine store even for a per-user package.
+            # AppX 部署即使安装当前用户包也会在计算机证书存储中验证信任。
+            $trustedCert = Import-Certificate -FilePath $cerPath -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+
+            & $signTool sign /fd SHA256 /sha1 $cert.Thumbprint /s My $testPackage
+            if ($LASTEXITCODE -ne 0) { throw "Ephemeral MSIX signing failed." }
+            & $signTool verify /pa /all $testPackage
+            if ($LASTEXITCODE -ne 0) { throw "Ephemeral MSIX signature verification failed." }
+
+            Add-AppxPackage -Path $testPackage -ErrorAction Stop
+            $installed = $true
+            $package = Get-AppxPackage -Name $env:STORE_IDENTITY_NAME
+            if ($null -eq $package) { throw "Installed package identity was not registered." }
+            $pathAfterInstall = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes([string][Environment]::GetEnvironmentVariable("PATH", "User")))
+            if ($pathAfterInstall -cne $pathBefore) {
+              throw "MSIX installation modified the user PATH instead of using App Execution Alias."
+            }
+
+            $whereOutput = @(& cmd.exe /d /c where scrap.exe)
+            if ($LASTEXITCODE -ne 0 -or $whereOutput.Count -eq 0) { throw "Windows did not register the scrap.exe App Execution Alias." }
+            $windowsApps = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps"))
+            $aliasPath = [IO.Path]::GetFullPath($whereOutput[0].Trim())
+            if (-not $aliasPath.StartsWith($windowsApps, [StringComparison]::OrdinalIgnoreCase)) {
+              throw "scrap.exe resolved outside the Windows App Execution Alias directory: $aliasPath"
+            }
+
+            & scrap.exe --help
+            if ($LASTEXITCODE -ne 0) { throw "App Execution Alias CLI smoke failed." }
+            & scrap.exe daemon ping
+            if ($LASTEXITCODE -ne 0) { throw "Packaged CLI could not start or contact the sibling daemon." }
+            $installRoot = [IO.Path]::GetFullPath($package.InstallLocation)
+            $daemon = Get-Process -Name scrapd -ErrorAction Stop | Where-Object {
+              $_.Path -and [IO.Path]::GetFullPath($_.Path).StartsWith($installRoot, [StringComparison]::OrdinalIgnoreCase)
+            } | Select-Object -First 1
+            if ($null -eq $daemon) { throw "Daemon did not execute from the installed package root." }
+
+            Start-Process -FilePath explorer.exe -ArgumentList "shell:AppsFolder\$($package.PackageFamilyName)!Scrap"
+            $gui = $null
+            for ($attempt = 0; $attempt -lt 30 -and $null -eq $gui; $attempt++) {
+              Start-Sleep -Milliseconds 500
+              $gui = Get-Process -Name scrap-gui -ErrorAction SilentlyContinue | Where-Object {
+                $_.Path -and [IO.Path]::GetFullPath($_.Path).StartsWith($installRoot, [StringComparison]::OrdinalIgnoreCase)
+              } | Select-Object -First 1
+            }
+            if ($null -eq $gui) { throw "Manifest activation did not start the packaged GUI." }
+            Stop-Process -Id $gui.Id -Force -ErrorAction Stop
+            $gui.WaitForExit()
+            & scrap.exe daemon shutdown --if-running
+            if ($LASTEXITCODE -ne 0) { throw "Packaged daemon shutdown failed." }
+
+            Remove-AppxPackage -Package $package.PackageFullName -ErrorAction Stop
+            $installed = $false
+            if (Get-AppxPackage -Name $env:STORE_IDENTITY_NAME) { throw "MSIX uninstall left the package registered." }
+            if (-not (Test-Path -LiteralPath $sentinel -PathType Leaf)) { throw "MSIX uninstall deleted user data under ~/.scrap." }
+            $pathAfterRemove = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes([string][Environment]::GetEnvironmentVariable("PATH", "User")))
+            if ($pathAfterRemove -cne $pathBefore) { throw "MSIX uninstall changed the user PATH." }
+          }
+          finally {
+            if ($installed) {
+              try { & scrap.exe daemon shutdown --if-running 2>$null } catch { Write-Warning "Alias shutdown was unavailable during cleanup: $_" }
+              try {
+                if ($null -ne $installRoot) {
+                  Get-Process -Name scrap-gui, scrapd -ErrorAction SilentlyContinue | Where-Object {
+                    $_.Path -and [IO.Path]::GetFullPath($_.Path).StartsWith($installRoot, [StringComparison]::OrdinalIgnoreCase)
+                  } | Stop-Process -Force -ErrorAction SilentlyContinue
+                }
+              } catch { Write-Warning "Packaged process cleanup failed: $_" }
+              try { Get-AppxPackage -Name $env:STORE_IDENTITY_NAME | Remove-AppxPackage -ErrorAction Stop } catch { Write-Warning "Package cleanup failed: $_" }
+            }
+            try { if ($null -ne $cert) { Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($cert.Thumbprint)" -Force -ErrorAction Stop } } catch { Write-Warning "Private test certificate cleanup failed: $_" }
+            try { if ($null -ne $trustedCert) { Remove-Item -LiteralPath "Cert:\LocalMachine\TrustedPeople\$($trustedCert.Thumbprint)" -Force -ErrorAction Stop } } catch { Write-Warning "Trusted test certificate cleanup failed: $_" }
+            try {
+              Remove-Item -LiteralPath $sentinel -Force -ErrorAction SilentlyContinue
+              if (-not $rootExisted -and (Test-Path -LiteralPath $scrapRoot) -and -not (Get-ChildItem -LiteralPath $scrapRoot -Force -ErrorAction SilentlyContinue)) {
+                Remove-Item -LiteralPath $scrapRoot -Force -ErrorAction SilentlyContinue
+              }
+            } catch { Write-Warning "Sentinel cleanup failed: $_" }
+          }
+
+      - name: Upload unsigned Partner Center artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: microsoft-store-unsigned-msix
+          path: |
+            ${{ steps.package.outputs.package }}
+            ${{ steps.package.outputs.sidecar }}
+          if-no-files-found: error
+          retention-days: 14

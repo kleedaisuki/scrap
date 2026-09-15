@@ -48,6 +48,27 @@ GitHub Actions 的签名是**可选且诚实可见**的。仓库 secrets 必须�
 
 不要承诺“签了就永不弹窗”：SmartScreen 同时评估发布者和文件信誉。对中国大陆个人维护者，Azure Artifact Signing 当前不开放；新商业 OV 证书通常还要求硬件密钥或 HSM，因此上面的 PFX lane 只适用于已经持有的可导出合格凭据。当前优先路线是申请免费的 SignPath Foundation 开源签名，同时为无需自购证书、由 Microsoft 重签的 Store MSIX 保留打包路线；两者都需要所有者完成外部身份或项目审批。具体策略与当前资格证据见 [`code-signing-policy.md`](code-signing-policy.md) 和 [`research-platform-style.md`](research-platform-style.md#5-installer-and-github-release-workflow)。
 
+### 2.2 Microsoft Store MSIX
+
+`build/package-store.ps1` 生成真正的完整包 MSIX（full-package MSIX），包含 GUI、CLI、daemon、图标与许可证清单。CLI 通过应用执行别名（App Execution Alias）`scrap.exe` 暴露，不修改用户 PATH；应用数据仍位于 `%USERPROFILE%\.scrap`，不属于包，更新和卸载都会保留。
+
+先在 Partner Center 保留产品名，再从 **Product management → Product identity** 原样复制三个区分大小写的字段。不得猜测 Publisher，也不得把 CI 占位身份提交到 Store：
+
+```powershell
+dotnet restore Scrap.slnx --locked-mode
+./build/package-store.ps1 `
+  -IdentityName '<Partner Center Package/Identity/Name>' `
+  -Publisher '<Partner Center Package/Identity/Publisher>' `
+  -PublisherDisplayName '<Partner Center PublisherDisplayName>' `
+  -ReleaseVersion '1.0.0'
+```
+
+Store 数字版本独立记录在 `installer/Scrap.Installer.Store/StoreVersion.txt`，每次提交必须单调递增，且第四段保持 `0`。脚本用 Windows SDK `MakeAppx` 做 schema/content validation，解包后复核平坦载荷与精确身份，并只生成**未签名**候选；Microsoft Store ingestion 会对接受的 MSIX 重签。仓库不会把 CI 自签测试包发布给用户。
+
+`.github/workflows/store-package.yml` 在一次性 Windows runner 中复制候选、创建临时证书、签名测试副本、安装并验证 `scrap.exe --help`、daemon 自动启动/IPC、PATH 不变、卸载与 `~/.scrap` 保留，最后无条件清理包与证书。AppX deployment 当前只认可计算机级 `TrustedPeople`，所以测试公钥短暂导入 `LocalMachine\TrustedPeople`，私钥仍为不可导出的当前用户密钥；该步骤只运行在临时管理员 runner，绝不用于开发机或用户设备。提交前还必须在**完全相同的候选包**上运行 Windows 应用认证工具包（Windows App Certification Kit, WACK），并审阅 Partner Center ingestion 结果。架构、不变量和官方证据见 [`store-msix-architecture.md`](store-msix-architecture.md)。
+
+普通 push/PR 使用明确的 CI 假身份；手动运行工作流才生成生产候选。手动运行前必须把上述三个精确值分别配置为 repository variables `STORE_IDENTITY_NAME`、`STORE_PUBLISHER`、`STORE_PUBLISHER_DISPLAY_NAME`，并输入 Release SemVer 与递增 Store version。缺少任何变量会直接拒绝构建，而不会退回 CI 占位身份。
+
 ## 3. Linux 与 macOS 安装
 
 这两个平台当前提供归档，而非图形安装器：
@@ -80,7 +101,9 @@ Linux 需要 `libsecret-1`、GLib/GIO、用户会话 D-Bus 和已解锁的 Secre
 ```text
 push main / pull request / manual
   ├─ Windows + Linux + macOS: locked restore -> build -> test
-  └─ Ubuntu: frozen pnpm install -> website check -> test -> build
+  ├─ Ubuntu: frozen pnpm install -> website check -> test -> build
+  └─ Windows Store lane: locked restore -> unsigned full-package MSIX -> unpack inspection
+      └─ sign disposable copy -> install -> alias/daemon/persistence smoke -> uninstall/cleanup
 
 push vX.Y.Z tag
   └─ three-platform tests
@@ -131,6 +154,7 @@ GitHub 签发 Pages 源站证书期间，Cloudflare 上的该 CNAME 应先设为
 - [ ] `.NET` 三平台 test 与 website `ci` 全部通过；
 - [ ] 四个 RID 的应用从打包产物启动，而非只验证源码 build；
 - [ ] Windows MSI fresh install、upgrade、GUI/CLI 启动、PATH 与 normal uninstall 已验证；
+- [ ] Store candidate 使用 Partner Center 精确身份与递增四段版本；unsigned candidate 经 MakeAppx、installed CI smoke、WACK 与 Partner Center ingestion 验证；
 - [ ] 若配置签名，executable 和 MSI 的 publisher、RFC 3161 timestamp 与 `signtool verify /pa /all` 均正确；若未配置，Release notes 不声称已签名；
 - [ ] 每个资产的 sidecar 与 `SHA256SUMS` 在签名完成后生成并验证；
 - [ ] `/`、`/en/`、主题切换、产品图标与平台下载链接正确；
