@@ -59,7 +59,7 @@
           </StackPanel>
           <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
             <TextBlock Text="{Binding L.SearchIn}" Classes="muted" VerticalAlignment="Center"/>
-            <Button Width="180" HorizontalContentAlignment="Stretch" AutomationProperties.Name="{Binding L.ChooseSearchScopes}" ToolTip.Tip="{Binding SearchScopeSummary}">
+            <Button Width="180" HorizontalContentAlignment="Stretch" AutomationProperties.Name="{Binding SearchScopeAccessibleName}" ToolTip.Tip="{Binding SearchScopeSummary}">
               <Button.Content>
                 <Grid ColumnDefinitions="*,Auto">
                   <TextBlock Text="{Binding SearchScopeSummary}" TextTrimming="CharacterEllipsis"/>

@@ -179,6 +179,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         int count => L.SelectedScopes(count),
     };
 
+    /// <summary>包含当前选择摘要的无障碍名称。Accessible name including the current selection summary.</summary>
+    public string SearchScopeAccessibleName => L.SearchScopeAccessibleName(SearchScopeSummary);
+
     /// <summary>持久化的主题选择。Persisted theme selection.</summary>
     public LocalizedChoice<AppTheme>? SelectedTheme
     {
@@ -1605,6 +1608,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         OnPropertyChanged(nameof(SelectedLanguage));
         OnPropertyChanged(nameof(SelectedTheme));
         OnPropertyChanged(nameof(SearchScopeSummary));
+        OnPropertyChanged(nameof(SearchScopeAccessibleName));
         OnPropertyChanged(nameof(ScopeStatus));
         OnPropertyChanged(nameof(ScopeDeleteMessage));
         OnPropertyChanged(nameof(RecordEditorTitle));
@@ -1720,6 +1724,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     {
         OnPropertyChanged(nameof(IsAllSearchScopesSelected));
         OnPropertyChanged(nameof(SearchScopeSummary));
+        OnPropertyChanged(nameof(SearchScopeAccessibleName));
     }
 
     private void NotifyCollectionState()

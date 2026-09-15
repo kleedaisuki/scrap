@@ -28,7 +28,8 @@ public sealed class LocalizationStrings
     public string SearchIn => Pick("检索范围", "Search in");
     public string AllScopes => Pick("所有空间", "All scopes");
     public string ChooseSearchScopes => Pick("选择一个或多个空间", "Choose one or more scopes");
-    public string SearchScopesHint => Pick("“所有空间”会检索全部；勾选空间可限定任意组合。", "All scopes searches everything; select scopes to search any combination.");
+    public string SearchScopesHint => Pick("选择“所有空间”检索全部；否则至少勾选一个空间，可自由组合。", "Choose All scopes to search everything; otherwise keep one or more scopes selected.");
+    public string SearchScopeAccessibleName(string summary) => Pick($"选择检索空间，当前：{summary}", $"Choose search scopes, current selection: {summary}");
     public string Exact => Pick("精确", "Exact");
     public string Fuzzy => Pick("模糊", "Fuzzy");
     public string Regex => Pick("正则", "Regex");

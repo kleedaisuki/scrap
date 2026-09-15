@@ -73,6 +73,7 @@ public sealed class MainWindowViewModelTests
         Assert.Equal("Search in", viewModel.L.SearchIn);
         Assert.Equal("All scopes", viewModel.L.AllScopes);
         Assert.Equal("Choose one or more scopes", viewModel.L.ChooseSearchScopes);
+        Assert.Equal("Choose search scopes, current selection: All scopes", viewModel.SearchScopeAccessibleName);
 
         viewModel.SelectedLanguage = Choice(viewModel.LanguageChoices, AppLanguage.SimplifiedChinese);
 
@@ -80,6 +81,7 @@ public sealed class MainWindowViewModelTests
         Assert.Equal("检索范围", viewModel.L.SearchIn);
         Assert.Equal("所有空间", viewModel.L.AllScopes);
         Assert.Equal("选择一个或多个空间", viewModel.L.ChooseSearchScopes);
+        Assert.Equal("选择检索空间，当前：所有空间", viewModel.SearchScopeAccessibleName);
         Assert.Equal("浅色", Choice(viewModel.ThemeChoices, AppTheme.Light).Label);
         Assert.Equal(AppLanguage.SimplifiedChinese, store.Load().Language);
 
