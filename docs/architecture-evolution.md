@@ -67,7 +67,7 @@ scrap find <query> (--exact|--fuzzy|--regex) ([--scope <scope>]... | --all)
 
 Omitting `--scope` or using `--all` selects every scope; repeated `--scope` selects an explicit union. Human output is `scope<TAB>key`, and JSON carries both fields.
 
-The desktop uses the dominant two-state interaction—**All scopes** or **Current scope**—without weakening the protocol. An arbitrary-subset picker can be added later without changing daemon or storage semantics.
+The desktop exposes the same set-valued model through a flyout: **All scopes** maps to `[]`, while one or more checked scopes map to the exact non-empty set. The separate header scope remains the record-management and New Record destination; changing it never rewrites the search filter. Removing the final checked scope is rejected so the UI cannot silently reinterpret “none” as “all”; users return to global search through the explicit **All scopes** choice.
 
 ### 3.2 Execution and complexity
 

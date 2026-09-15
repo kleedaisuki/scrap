@@ -15,19 +15,6 @@ public enum SearchMode
     Regex,
 }
 
-/// <summary>
-/// 搜索覆盖范围；与当前用于创建和管理记录的 scope 选择互相独立。
-/// Search coverage, intentionally independent from the scope selected for record management.
-/// </summary>
-public enum SearchCoverage
-{
-    /// <summary>仅搜索当前 scope。Search only the current scope.</summary>
-    CurrentScope,
-
-    /// <summary>搜索所有 scope。Search every scope.</summary>
-    AllScopes,
-}
-
 /// <summary>界面主题选择。User-facing theme preference.</summary>
 public enum AppTheme
 {

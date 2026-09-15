@@ -44,7 +44,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private string _searchText = string.Empty;
     private SearchMode _selectedMode = SearchMode.Fuzzy;
     private bool _caseSensitive;
-    private SearchCoverage _searchCoverage = SearchCoverage.AllScopes;
+    private readonly HashSet<string> _selectedSearchScopes = new(StringComparer.Ordinal);
+    private bool _synchronizingSearchScopes;
     private AppTheme _selectedTheme;
     private AppLanguage _selectedLanguage;
     private LocalizationStrings _localization;
@@ -143,8 +144,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     /// <summary>由 daemon 排序的 key 候选。Key candidates ranked by the daemon.</summary>
     public ObservableCollection<RecordCandidate> Candidates { get; } = [];
 
-    /// <summary>本地化的检索范围选项。Localized search-coverage choices.</summary>
-    public ObservableCollection<LocalizedChoice<SearchCoverage>> SearchCoverageChoices { get; } = [];
+    /// <summary>可独立多选的检索 scope；空选择在协议边界表示所有 scope。Independently selectable search scopes; an empty selection means all scopes at the protocol boundary.</summary>
+    public ObservableCollection<SearchScopeChoice> SearchScopeChoices { get; } = [];
 
     /// <summary>本地化的主题选项。Localized theme choices.</summary>
     public ObservableCollection<LocalizedChoice<AppTheme>> ThemeChoices { get; } = [];
@@ -155,23 +156,28 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     /// <summary>当前语言的完整文案。Complete copy for the active language.</summary>
     public LocalizationStrings L => _localization;
 
-    /// <summary>当前检索覆盖范围。Current search coverage.</summary>
-    public LocalizedChoice<SearchCoverage>? SelectedSearchCoverage
+    /// <summary>是否搜索所有 scope。Whether every scope is searched.</summary>
+    public bool IsAllSearchScopesSelected
     {
-        get => SearchCoverageChoices.FirstOrDefault(choice => choice.Value == _searchCoverage);
+        get => _selectedSearchScopes.Count == 0;
         set
         {
-            if (value is null || value.Value == _searchCoverage)
+            if (!value || _selectedSearchScopes.Count == 0)
             {
                 return;
             }
 
-            _searchCoverage = value.Value;
-            OnPropertyChanged();
-            SelectedCandidate = null;
-            _ = ScheduleSearchAsync(immediate: true);
+            SetSearchScopesToAll();
         }
     }
+
+    /// <summary>用于折叠选择器的本地化检索范围摘要。Localized search-scope summary for the collapsed picker.</summary>
+    public string SearchScopeSummary => _selectedSearchScopes.Count switch
+    {
+        0 => L.AllScopes,
+        1 => _selectedSearchScopes.Single(),
+        int count => L.SelectedScopes(count),
+    };
 
     /// <summary>持久化的主题选择。Persisted theme selection.</summary>
     public LocalizedChoice<AppTheme>? SelectedTheme
@@ -210,7 +216,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
     }
 
-    /// <summary>当前 scope；变化时只在该 scope 内重新搜索。Current scope; changes trigger search only within that scope.</summary>
+    /// <summary>记录管理和新建记录的目标 scope；它不改变独立的检索 scope 集合。Target scope for record management and creation; it does not alter the independent search-scope set.</summary>
     public ScopeSummary? SelectedScope
     {
         get => _selectedScope;
@@ -224,8 +230,6 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             OnPropertyChanged(nameof(HasSelectedScope));
             OnPropertyChanged(nameof(ScopeStatus));
             NotifyCommandStates();
-            SelectedCandidate = null;
-            _ = ScheduleSearchAsync(immediate: true);
         }
     }
 
@@ -778,8 +782,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
                 Scopes.Add(scope);
             }
 
+            SynchronizeSearchScopeChoices(scopes);
+
             SelectedScope = scopes.FirstOrDefault(scope => string.Equals(scope.Name, previousName, StringComparison.Ordinal))
                 ?? (scopes.Count > 0 ? scopes[0] : null);
+            await ScheduleSearchAsync(immediate: true);
             succeeded = true;
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
@@ -878,9 +885,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     private async Task<IReadOnlyList<RecordCandidate>> SearchSelectedScopesAsync(CancellationToken cancellationToken)
     {
-        IReadOnlyList<string> scopes = _searchCoverage == SearchCoverage.AllScopes
+        IReadOnlyList<string> scopes = _selectedSearchScopes.Count == 0
             ? []
-            : SelectedScope is null ? [] : [SelectedScope.Name];
+            : _selectedSearchScopes.Order(StringComparer.Ordinal).ToArray();
         var request = new RecordSearchRequest(
             scopes,
             SearchText,
@@ -1032,6 +1039,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             else
             {
                 await _client.CreateScopeAsync(newName, mutationCancellation.Token);
+            }
+
+            if (isRename && _selectedSearchScopes.Remove(originalName!))
+            {
+                _selectedSearchScopes.Add(newName);
             }
 
             CloseModals();
@@ -1281,10 +1293,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     private async Task RetryRefreshAsync()
     {
-        if (await LoadScopesAsync())
-        {
-            await ScheduleSearchAsync(immediate: true);
-        }
+        await LoadScopesAsync();
     }
 
     private async Task CopyAsync()
@@ -1577,10 +1586,6 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     private void RebuildLocalizedChoices()
     {
-        SearchCoverageChoices.Clear();
-        SearchCoverageChoices.Add(new(SearchCoverage.CurrentScope, L.CurrentScope));
-        SearchCoverageChoices.Add(new(SearchCoverage.AllScopes, L.AllScopes));
-
         ThemeChoices.Clear();
         ThemeChoices.Add(new(AppTheme.System, L.SystemTheme));
         ThemeChoices.Add(new(AppTheme.Light, L.LightTheme));
@@ -1599,7 +1604,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         OnPropertyChanged(nameof(L));
         OnPropertyChanged(nameof(SelectedLanguage));
         OnPropertyChanged(nameof(SelectedTheme));
-        OnPropertyChanged(nameof(SelectedSearchCoverage));
+        OnPropertyChanged(nameof(SearchScopeSummary));
         OnPropertyChanged(nameof(ScopeStatus));
         OnPropertyChanged(nameof(ScopeDeleteMessage));
         OnPropertyChanged(nameof(RecordEditorTitle));
@@ -1611,6 +1616,76 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     private void PersistPreferences() =>
         _preferenceStore.Save(new UserPreferences(_selectedTheme, _selectedLanguage));
+
+    private void SynchronizeSearchScopeChoices(IReadOnlyList<ScopeSummary> scopes)
+    {
+        var availableNames = scopes.Select(scope => scope.Name).ToHashSet(StringComparer.Ordinal);
+        _selectedSearchScopes.IntersectWith(availableNames);
+
+        _synchronizingSearchScopes = true;
+        try
+        {
+            SearchScopeChoices.Clear();
+            foreach (ScopeSummary scope in scopes)
+            {
+                SearchScopeChoices.Add(new SearchScopeChoice(
+                    scope.Name,
+                    _selectedSearchScopes.Contains(scope.Name),
+                    OnSearchScopeSelectionChanged));
+            }
+        }
+        finally
+        {
+            _synchronizingSearchScopes = false;
+        }
+
+        NotifySearchScopeSelectionChanged();
+    }
+
+    private void OnSearchScopeSelectionChanged(SearchScopeChoice choice, bool selected)
+    {
+        if (_synchronizingSearchScopes)
+        {
+            return;
+        }
+
+        if (selected)
+        {
+            _selectedSearchScopes.Add(choice.Name);
+        }
+        else if (_selectedSearchScopes.Count > 1)
+        {
+            _selectedSearchScopes.Remove(choice.Name);
+        }
+        else
+        {
+            choice.SetSelectedSilently(true);
+            return;
+        }
+
+        NotifySearchScopeSelectionChanged();
+        SelectedCandidate = null;
+        _ = ScheduleSearchAsync(immediate: true);
+    }
+
+    private void SetSearchScopesToAll()
+    {
+        _selectedSearchScopes.Clear();
+        foreach (SearchScopeChoice choice in SearchScopeChoices)
+        {
+            choice.SetSelectedSilently(false);
+        }
+
+        NotifySearchScopeSelectionChanged();
+        SelectedCandidate = null;
+        _ = ScheduleSearchAsync(immediate: true);
+    }
+
+    private void NotifySearchScopeSelectionChanged()
+    {
+        OnPropertyChanged(nameof(IsAllSearchScopesSelected));
+        OnPropertyChanged(nameof(SearchScopeSummary));
+    }
 
     private void NotifyCollectionState()
     {

@@ -26,8 +26,9 @@ public sealed class LocalizationStrings
     public string Delete => Pick("删除", "Delete");
     public string SearchPlaceholder => Pick("搜索记录键…（Ctrl+K 或 /）", "Search record keys… (Ctrl+K or /)");
     public string SearchIn => Pick("检索范围", "Search in");
-    public string CurrentScope => Pick("当前空间", "Current scope");
     public string AllScopes => Pick("所有空间", "All scopes");
+    public string ChooseSearchScopes => Pick("选择一个或多个空间", "Choose one or more scopes");
+    public string SearchScopesHint => Pick("“所有空间”会检索全部；勾选空间可限定任意组合。", "All scopes searches everything; select scopes to search any combination.");
     public string Exact => Pick("精确", "Exact");
     public string Fuzzy => Pick("模糊", "Fuzzy");
     public string Regex => Pick("正则", "Regex");
@@ -112,6 +113,7 @@ public sealed class LocalizationStrings
     };
 
     public string RecordCount(int count) => Pick($"{count} 条记录", count == 1 ? "1 record" : $"{count} records");
+    public string SelectedScopes(int count) => Pick($"已选 {count} 个空间", $"{count} scopes selected");
     public string RecordIdentity(string scope, string key) => Pick($"空间“{scope}” · 记录键“{key}”", $"Scope “{scope}” · key “{key}”");
     public string Updated(DateTimeOffset value) => Pick($"更新于 {value.ToLocalTime():yyyy-MM-dd HH:mm}", $"Updated {value.ToLocalTime():yyyy-MM-dd HH:mm}");
     public string DeleteScope(string name, int count) => count == 0

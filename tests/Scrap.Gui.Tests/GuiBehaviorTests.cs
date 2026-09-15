@@ -71,13 +71,15 @@ public sealed class MainWindowViewModelTests
 
         Assert.Equal("Scope", viewModel.L.Scope);
         Assert.Equal("Search in", viewModel.L.SearchIn);
-        Assert.Equal("All scopes", Choice(viewModel.SearchCoverageChoices, SearchCoverage.AllScopes).Label);
+        Assert.Equal("All scopes", viewModel.L.AllScopes);
+        Assert.Equal("Choose one or more scopes", viewModel.L.ChooseSearchScopes);
 
         viewModel.SelectedLanguage = Choice(viewModel.LanguageChoices, AppLanguage.SimplifiedChinese);
 
         Assert.Equal("空间", viewModel.L.Scope);
         Assert.Equal("检索范围", viewModel.L.SearchIn);
-        Assert.Equal("所有空间", Choice(viewModel.SearchCoverageChoices, SearchCoverage.AllScopes).Label);
+        Assert.Equal("所有空间", viewModel.L.AllScopes);
+        Assert.Equal("选择一个或多个空间", viewModel.L.ChooseSearchScopes);
         Assert.Equal("浅色", Choice(viewModel.ThemeChoices, AppTheme.Light).Label);
         Assert.Equal(AppLanguage.SimplifiedChinese, store.Load().Language);
 
@@ -85,7 +87,7 @@ public sealed class MainWindowViewModelTests
 
         Assert.Equal("Scope", viewModel.L.Scope);
         Assert.Equal("Search in", viewModel.L.SearchIn);
-        Assert.Equal("All scopes", Choice(viewModel.SearchCoverageChoices, SearchCoverage.AllScopes).Label);
+        Assert.Equal("All scopes", viewModel.L.AllScopes);
         Assert.Equal("Light", Choice(viewModel.ThemeChoices, AppTheme.Light).Label);
         Assert.Equal(AppLanguage.English, store.Load().Language);
     }
@@ -168,13 +170,83 @@ public sealed class MainWindowViewModelTests
 
         RecordSearchRequest request = client.SearchRequests[^1];
         Assert.Empty(request.Scopes);
-        Assert.Equal(SearchCoverage.AllScopes, viewModel.SelectedSearchCoverage?.Value);
+        Assert.True(viewModel.IsAllSearchScopesSelected);
+        Assert.Equal(viewModel.L.AllScopes, viewModel.SearchScopeSummary);
 
         viewModel.SelectedCandidate = candidate;
         await WaitUntilAsync(() => viewModel.SelectedRecord is not null);
 
         Assert.Equal((candidate.Scope, candidate.Key), Assert.Single(client.GetRecordCalls));
         Assert.Equal(candidate.Scope, viewModel.SelectedRecord!.Scope);
+    }
+
+    /// <summary>
+    /// GUI 必须把任意勾选组合发送为精确 scope 集合，且记录目标选择不得偷偷改写检索集合。
+    /// The GUI must send any checked combination as the exact scope set, and the record destination must not rewrite it.
+    /// </summary>
+    [Fact]
+    public async Task SearchScopePickerSendsArbitrarySubsetIndependentOfRecordDestination()
+    {
+        using var directory = TestDirectory.Create();
+        var client = new FakeScrapClient
+        {
+            Scopes =
+            [
+                new ScopeSummary("alpha", 1),
+                new ScopeSummary("beta", 1),
+                new ScopeSummary("gamma", 1),
+            ],
+        };
+        await using var viewModel = CreateViewModel(
+            client,
+            new UserPreferenceStore(Path.Combine(directory.Path, "preferences.json")));
+
+        await viewModel.InitializeAsync();
+        SearchScopeChoice alpha = Assert.Single(viewModel.SearchScopeChoices, choice => choice.Name == "alpha");
+        SearchScopeChoice beta = Assert.Single(viewModel.SearchScopeChoices, choice => choice.Name == "beta");
+
+        alpha.IsSelected = true;
+        beta.IsSelected = true;
+        await WaitUntilAsync(() => client.SearchRequests.Any(request => request.Scopes.SequenceEqual(["alpha", "beta"])));
+
+        Assert.False(viewModel.IsAllSearchScopesSelected);
+        Assert.Equal(viewModel.L.SelectedScopes(2), viewModel.SearchScopeSummary);
+        Assert.DoesNotContain("gamma", client.SearchRequests[^1].Scopes);
+
+        int requestsBeforeDestinationChange = client.SearchRequests.Count;
+        viewModel.SelectedScope = Assert.Single(viewModel.Scopes, scope => scope.Name == "gamma");
+        await Task.Delay(50);
+
+        Assert.Equal(requestsBeforeDestinationChange, client.SearchRequests.Count);
+        Assert.Equal(["alpha", "beta"], client.SearchRequests[^1].Scopes);
+    }
+
+    /// <summary>
+    /// 从显式子集切回“所有空间”必须清空协议 scope 集，而不是展开为当前快照。
+    /// Returning from an explicit subset to All scopes must clear the protocol set rather than expand the current snapshot.
+    /// </summary>
+    [Fact]
+    public async Task SelectingAllScopesRestoresEmptyProtocolScopeSet()
+    {
+        using var directory = TestDirectory.Create();
+        var client = new FakeScrapClient
+        {
+            Scopes = [new ScopeSummary("alpha", 1), new ScopeSummary("beta", 1)],
+        };
+        await using var viewModel = CreateViewModel(
+            client,
+            new UserPreferenceStore(Path.Combine(directory.Path, "preferences.json")));
+
+        await viewModel.InitializeAsync();
+        Assert.Single(viewModel.SearchScopeChoices, choice => choice.Name == "alpha").IsSelected = true;
+        await WaitUntilAsync(() => client.SearchRequests[^1].Scopes.SequenceEqual(["alpha"]));
+
+        viewModel.IsAllSearchScopesSelected = true;
+        await WaitUntilAsync(() => client.SearchRequests.Count >= 3 && client.SearchRequests[^1].Scopes.Count == 0);
+
+        Assert.True(viewModel.IsAllSearchScopesSelected);
+        Assert.All(viewModel.SearchScopeChoices, choice => Assert.False(choice.IsSelected));
+        Assert.Empty(client.SearchRequests[^1].Scopes);
     }
 
     /// <summary>
