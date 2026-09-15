@@ -9,6 +9,7 @@ interface Props {
 
 const { locale, copy } = Astro.props;
 const releaseUrl = "https://github.com/kleedaisuki/scrap/releases";
+const signingPolicyUrl = "https://github.com/kleedaisuki/scrap/blob/main/docs/code-signing-policy.md";
 ---
 
 <BaseLayout {locale} {copy}>
@@ -125,6 +126,8 @@ const releaseUrl = "https://github.com/kleedaisuki/scrap/releases";
         </a>
       ))}
     </div>
-    <p class="download-note">{copy.download.footnote}</p>
+    <p class="download-note">
+      {copy.download.footnote} <a href={signingPolicyUrl}>{copy.download.signingPolicy} <span aria-hidden="true">↗</span></a>
+    </p>
   </section>
 </BaseLayout>

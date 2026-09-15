@@ -75,6 +75,7 @@ pnpm --dir website run verify
 
 - 系统契约：[`docs/scrap-design.md`](docs/scrap-design.md)
 - 发布、安装、签名与资产：[`docs/release.md`](docs/release.md)
+- Code signing policy：[`docs/code-signing-policy.md`](docs/code-signing-policy.md)
 - 产品与交互决策：[`docs/ux-product-spec.md`](docs/ux-product-spec.md)
 - 平台样式、i18n、Pages 与分发研究：[`docs/research-platform-style.md`](docs/research-platform-style.md)
 - 架构演进：[`docs/architecture-evolution.md`](docs/architecture-evolution.md)
