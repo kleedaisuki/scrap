@@ -318,7 +318,7 @@ GUI 使用 C# 与 Avalonia，实现为真正的本地桌面 client。视觉使�
 ### 8.1 主交互
 
 ```text
-Scope manager + search coverage (current / all)
+Record destination + search coverage (all / checked subset)
     ↓
 Search input
     ↓
@@ -333,7 +333,7 @@ Copy / Reveal / Edit / Delete
 
 核心布局：
 
-- 顶部：scope 选择、scope 管理与搜索覆盖范围；
+- 顶部：独立的记录目标 scope、scope 管理与多选搜索覆盖范围；
 - 中部：搜索框、匹配模式、大小写开关；
 - 左侧或主列表：key 候选；
 - 详情区：选中记录的 key、遮罩 value 和操作；
@@ -349,7 +349,8 @@ Copy / Reveal / Edit / Delete
 - `Ctrl+K` 或 `/` 聚焦搜索；
 - `Ctrl+C` 复制当前记录 value；
 - `Ctrl+N` 新建 record；
-- 检索覆盖范围可在当前 scope 与全部 scope 之间选择，默认为全部；所有候选都显示 scope 与 key；
+- 检索范围默认为全部，也可勾选任意一个或多个 scope；空协议集合是“全部”的唯一表示；
+- 顶部记录目标仅决定 scope 管理与新建记录的写入位置，改变它不得改写多选检索集合；所有候选都显示 scope 与 key；
 - masked value 默认不显示；
 - reveal 是明确、短暂、可逆的 UI 状态；
 - copy 成功只给轻量反馈，不弹阻塞式对话框；

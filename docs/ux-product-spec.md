@@ -124,16 +124,14 @@ This independence is the central acceptance invariant. No setter, binding, or ev
 
 ### 5.1 Scope filter
 
-The first complete GUI supports two explicit states, while the protocol and CLI retain the more general set-valued target:
+The GUI, protocol, and CLI share one set-valued target:
 
 ```text
-GUI search coverage = All | Current(selected scope)
+GUI search coverage = All | one-or-more checked scopes
 Protocol scopes     = [] (all) | [scope, ...] (explicit non-empty set)
 ```
 
-The GUI selector contains **All scopes** and **Current scope**. The existing scope selector supplies the current explicit scope, so daily scope management and record creation remain available without a second modal. First launch uses **All scopes**. Results always show both scope and key, including in Current mode, which keeps identity and layout stable.
-
-The daemon protocol accepts any explicit non-empty scope set and the CLI exposes it through repeated `--scope`; therefore a later checkbox-based subset picker requires no storage or protocol redesign. There is no third “no scopes selected” state: an empty protocol array means All, while the GUI disables Current mode when no current scope exists.
+The collapsed GUI control summarizes **All scopes**, one scope name, or the number selected. Its flyout offers an explicit **All scopes** choice and a scrollable checkbox list for arbitrary subsets. First launch uses All. The final checked scope cannot be unchecked because an apparently empty checkbox list must not silently broaden the query; the explicit All choice performs that transition. Results always show both scope and key, which keeps identity and layout stable.
 
 ### 5.2 Search semantics
 
@@ -149,7 +147,7 @@ The daemon protocol accepts any explicit non-empty scope set and the CLI exposes
 
 ### 5.3 New record while searching multiple scopes
 
-Destination scope is inherently required by the domain. The first complete GUI keeps one explicit current scope selected in the header even while search coverage is **All scopes**, and **New record** saves into that current scope. It never guesses a first scope when none is selected. A future arbitrary-subset picker should add an explicit destination field rather than infer one from several checked scopes.
+Destination scope is inherently required by the domain. The header keeps one explicit record-management scope even while search covers All or an arbitrary subset, and **New record** saves into that destination. Changing the destination does not rewrite or rerun the search filter, and the destination is never inferred from checked search scopes. Editing an existing cross-scope result retains that record's own scope.
 
 ### 5.4 CLI observable contract
 
@@ -336,7 +334,7 @@ A trusted code-signing route and publisher identity must be supplied by the proj
 
 ### 11.2 Multi-scope search
 
-- Search works with All and Current in the GUI, and with All, one, and at least two explicit scopes through the protocol/CLI, for exact, fuzzy, and regex modes.
+- Search works with All, one, and at least two explicit scopes through the GUI, protocol, and CLI, for exact, fuzzy, and regex modes.
 - Two records with the same key in different scopes render as distinguishable rows and open/delete the correct identity.
 - Results outside the explicit scope set never appear.
 - Empty query ordering and non-empty tie-breaking are deterministic across repeated runs.
@@ -368,7 +366,7 @@ A trusted code-signing route and publisher identity must be supplied by the proj
 ### P0: release-blocking
 
 1. Independent masked-policy/editor-visibility model and localized copy.
-2. All/Current GUI search plus all/explicit-set protocol and CLI search identity end to end.
+2. All/arbitrary-subset search plus complete `(scope, key)` identity end to end across GUI, protocol, and CLI.
 3. `zh-CN`/`en` resources and System/Light/Dark themes in desktop and site.
 4. Version-pinned MoeSegFault semantic tokens.
 5. Product icon across app, installer, site, and release assets.
@@ -378,7 +376,6 @@ A trusted code-signing route and publisher identity must be supplied by the proj
 ### P1: desirable after the complete release
 
 - Remembered recent destination scopes in the New Record picker.
-- Arbitrary-subset checkbox picker in the GUI, reusing the existing set-valued protocol.
 - Dedicated keyboard shortcut for opening the scope filter.
 - macOS signed/notarized `.app`/`.dmg` and native Linux packages.
 - Locale expansion beyond `zh-CN` and `en`.
