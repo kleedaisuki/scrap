@@ -1,0 +1,58 @@
+---
+import type { Locale, SiteCopy } from "../lib/content";
+import type { SupportCopy } from "../lib/support";
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+interface Props {
+  locale: Locale;
+  copy: SiteCopy;
+  support: SupportCopy;
+}
+
+const { locale, copy, support } = Astro.props;
+const canonicalPath = locale === "zh" ? "/support/" : "/en/support/";
+const alternatePath = locale === "zh" ? "/en/support/" : "/support/";
+const issuesUrl = "https://github.com/kleedaisuki/scrap/issues";
+---
+
+<BaseLayout
+  {locale}
+  {copy}
+  title={support.meta.title}
+  description={support.meta.description}
+  {canonicalPath}
+  {alternatePath}
+>
+  <article class="support-page">
+    <header class="support-hero">
+      <p class="eyebrow">{support.eyebrow}</p>
+      <h1>{support.title}</h1>
+      <p>{support.lead}</p>
+    </header>
+
+    <div class="support-topics">
+      {support.topics.map((topic) => (
+        <section id={topic.id} class="support-topic" aria-labelledby={`${topic.id}-title`}>
+          <span class="support-number" aria-hidden="true">{topic.number}</span>
+          <h2 id={`${topic.id}-title`}>{topic.title}</h2>
+          {topic.paragraphs.map((paragraph) => <p>{paragraph}</p>)}
+          {topic.commands && (
+            <div class="command-list" aria-label={locale === "zh" ? "可用的诊断命令" : "Useful diagnostic commands"}>
+              {topic.commands.map((command) => <code>{command}</code>)}
+            </div>
+          )}
+          {topic.points && <ul>{topic.points.map((point) => <li>{point}</li>)}</ul>}
+        </section>
+      ))}
+    </div>
+
+    <section class="support-contact" aria-labelledby="support-contact-title">
+      <p class="section-kicker">{support.contact.kicker}</p>
+      <h2 id="support-contact-title">{support.contact.title}</h2>
+      <p>{support.contact.body}</p>
+      <p class="support-warning"><strong>{support.contact.warning}</strong></p>
+      <p>{support.contact.sensitive}</p>
+      <a class="button primary" href={issuesUrl}>{support.contact.action}<span aria-hidden="true">↗</span></a>
+    </section>
+  </article>
+</BaseLayout>

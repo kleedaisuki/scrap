@@ -23,6 +23,7 @@ const alternateLocale: Locale = locale === "zh" ? "en" : "zh";
 const localeLabel = locale === "zh" ? "EN" : "中文";
 const homePath = locale === "zh" ? "/" : "/en/";
 const privacyPath = locale === "zh" ? "/privacy/" : "/en/privacy/";
+const supportPath = locale === "zh" ? "/support/" : "/en/support/";
 const chineseAlternate = locale === "zh" ? canonicalPath : alternatePath;
 const englishAlternate = locale === "en" ? canonicalPath : alternatePath;
 const canonical = new URL(canonicalPath, Astro.site);
@@ -105,6 +106,7 @@ const releasesUrl = "https://github.com/kleedaisuki/scrap/releases";
       <div class="footer-links">
         <a href="https://github.com/kleedaisuki/scrap">GitHub</a>
         <a href={releasesUrl}>{copy.nav.download}</a>
+        <a href={supportPath}>{copy.footer.support}</a>
         <a href={privacyPath}>{copy.footer.privacy}</a>
         <span>{copy.footer.license}</span>
       </div>

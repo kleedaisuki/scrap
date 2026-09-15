@@ -42,7 +42,7 @@ export interface SiteCopy {
     footnote: string;
     signingPolicy: string;
   };
-  footer: { line: string; license: string; privacy: string };
+  footer: { line: string; license: string; privacy: string; support: string };
 }
 
 export const copy: Record<Locale, SiteCopy> = {
@@ -106,7 +106,7 @@ export const copy: Record<Locale, SiteCopy> = {
       footnote: "所有下载均由 GitHub Releases 提供，并附版本说明、SHA-256 校验和与签名状态。未签名版本可能触发 Windows SmartScreen 提示。",
       signingPolicy: "Code signing policy",
     },
-    footer: { line: "在本机，安静地保存重要的值。", license: "GPL-3.0 开源软件", privacy: "隐私政策" },
+    footer: { line: "在本机，安静地保存重要的值。", license: "GPL-3.0 开源软件", privacy: "隐私政策", support: "支持" },
   },
   en: {
     meta: {
@@ -168,7 +168,7 @@ export const copy: Record<Locale, SiteCopy> = {
       footnote: "GitHub Releases provides every download with release notes, SHA-256 checksums, and signing status. Unsigned builds may trigger Windows SmartScreen.",
       signingPolicy: "Code signing policy",
     },
-    footer: { line: "Keep the values that matter, quietly, on your machine.", license: "Open source under GPL-3.0", privacy: "Privacy" },
+    footer: { line: "Keep the values that matter, quietly, on your machine.", license: "Open source under GPL-3.0", privacy: "Privacy", support: "Support" },
   },
 };
 

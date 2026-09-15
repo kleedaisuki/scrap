@@ -20,4 +20,14 @@
     <xhtml:link rel="alternate" hreflang="zh-CN" href="https://scrap.moesegfault.dev/privacy/" />
     <xhtml:link rel="alternate" hreflang="en" href="https://scrap.moesegfault.dev/en/privacy/" />
   </url>
+  <url>
+    <loc>https://scrap.moesegfault.dev/support/</loc>
+    <xhtml:link rel="alternate" hreflang="zh-CN" href="https://scrap.moesegfault.dev/support/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://scrap.moesegfault.dev/en/support/" />
+  </url>
+  <url>
+    <loc>https://scrap.moesegfault.dev/en/support/</loc>
+    <xhtml:link rel="alternate" hreflang="zh-CN" href="https://scrap.moesegfault.dev/support/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://scrap.moesegfault.dev/en/support/" />
+  </url>
 </urlset>

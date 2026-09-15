@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { copy } from "../src/lib/content";
 import { privacyCopy } from "../src/lib/privacy";
+import { supportCopy } from "../src/lib/support";
 
 /** Ensures both localized release pages stay structurally equivalent. / 确保双语发布页结构保持一致。 */
 describe("localized product copy", () => {
@@ -29,6 +30,21 @@ describe("localized privacy policy", () => {
   it("states encryption, clipboard, uninstall, and external boundaries", () => {
     const english = JSON.stringify(privacyCopy.en);
     for (const disclosure of ["Unencrypted metadata", "30 seconds", "does not automatically clear", "preserve data under ~/.scrap", "Operating-system and external boundaries"]) {
+      expect(english).toContain(disclosure);
+    }
+  });
+});
+
+/** Guards support parity and the public-channel warning. / 守护支持页双语对等和公开渠道警告。 */
+describe("localized product support", () => {
+  it("keeps equivalent topic anchors in both locales", () => {
+    expect(supportCopy.zh.topics.map(({ id }) => id)).toEqual(supportCopy.en.topics.map(({ id }) => id));
+    expect(supportCopy.en.topics.map(({ id }) => id)).toEqual(["install", "start", "data", "cli"]);
+  });
+
+  it("documents aliases, preserved data, and safe public contact", () => {
+    const english = JSON.stringify(supportCopy.en);
+    for (const disclosure of ["App Execution Alias", "%LOCALAPPDATA%", "does not remove this directory", "entirely public", "fully redacted contact request"]) {
       expect(english).toContain(disclosure);
     }
   });
