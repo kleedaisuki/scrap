@@ -166,7 +166,7 @@ website/
 
 Astro emits static HTML. The root Chinese page and `/en/` page are both canonical, indexable, and connected by `hreflang`. A visible language link changes route; there is no forced locale redirect. A small inline head script applies `auto | light | dark` before paint, while CSS media queries keep System mode usable without JavaScript. Storage access is best-effort so a disabled `localStorage` does not break theme switching.
 
-The page is intentionally a product narrative—outcome, interactive-looking product preview, trust boundary, features, architecture, and platform downloads—not a copied command reference. Windows is described as MSI; macOS and Linux are described as archives. CTAs use GitHub's stable `/releases/latest` link.
+The page is intentionally a product narrative—outcome, interactive-looking product preview, trust boundary, features, architecture, and platform downloads—not a copied command reference. Windows is described as MSI; macOS and Linux are described as archives. CTAs use GitHub's `/releases` index so preview-only repositories never send users to a missing `/releases/latest` page.
 
 The pinned stylesheet URL is `https://style.moesegfault.dev/v0.1.2/css/all.css`. Local semantic tokens preserve the page if the external component stylesheet is slow, and pinning avoids silent visual drift.
 
