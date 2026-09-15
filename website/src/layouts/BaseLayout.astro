@@ -1,0 +1,132 @@
+---
+import "../styles/global.css";
+import type { Locale, SiteCopy } from "../lib/content";
+
+interface Props {
+  locale: Locale;
+  copy: SiteCopy;
+}
+
+const { locale, copy } = Astro.props;
+const alternateLocale: Locale = locale === "zh" ? "en" : "zh";
+const localeLabel = locale === "zh" ? "EN" : "中文";
+const canonicalPath = locale === "zh" ? "/" : "/en/";
+const canonical = new URL(canonicalPath, Astro.site);
+const latestRelease = "https://github.com/kleedaisuki/scrap/releases/latest";
+---
+
+<!doctype html>
+<html lang={locale === "zh" ? "zh-CN" : "en"} data-moe-theme="auto">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="theme-color" content="#fff6ea" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#21130f" media="(prefers-color-scheme: dark)" />
+    <meta name="description" content={copy.meta.description} />
+    <meta name="generator" content={Astro.generator} />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={copy.meta.title} />
+    <meta property="og:description" content={copy.meta.description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={new URL("/scrap-icon-512.png", Astro.site)} />
+    <link rel="canonical" href={canonical} />
+    <link rel="alternate" hreflang="zh-CN" href={new URL("/", Astro.site)} />
+    <link rel="alternate" hreflang="en" href={new URL("/en/", Astro.site)} />
+    <link rel="alternate" hreflang="x-default" href={new URL("/", Astro.site)} />
+    <link rel="icon" type="image/png" sizes="32x32" href="/scrap-icon-32.png" />
+    <link rel="apple-touch-icon" href="/scrap-icon-256.png" />
+    <link rel="stylesheet" href="https://style.moesegfault.dev/v0.1.2/css/all.css" />
+    <title>{copy.meta.title}</title>
+    <script is:inline>
+      (() => {
+        try {
+          const stored = localStorage.getItem("scrap-theme");
+          if (stored === "light" || stored === "dark" || stored === "auto") {
+            document.documentElement.dataset.moeTheme = stored;
+          }
+        } catch {
+          /** 存储可能被禁用；跟随系统仍是完整回退。Storage can be disabled; System remains a complete fallback. */
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">{locale === "zh" ? "跳到主要内容" : "Skip to content"}</a>
+    <header class="site-header">
+      <a class="brand" href={canonicalPath} aria-label="scrap home">
+        <img src="/scrap-icon-64.png" alt="" width="36" height="36" />
+        <span>scrap</span>
+      </a>
+      <nav aria-label={locale === "zh" ? "主导航" : "Main navigation"}>
+        <a href="#features">{copy.nav.features}</a>
+        <a href="#architecture">{copy.nav.design}</a>
+        <a href="#download">{copy.nav.download}</a>
+      </nav>
+      <div class="header-actions">
+        <a class="language-link" href={alternateLocale === "zh" ? "/" : "/en/"} hreflang={alternateLocale}>{localeLabel}</a>
+        <button
+          class="theme-toggle"
+          type="button"
+          data-theme-toggle
+          data-theme-label={copy.theme.label}
+          aria-label={copy.theme.label}
+          data-label-system={copy.theme.system}
+          data-label-light={copy.theme.light}
+          data-label-dark={copy.theme.dark}
+        >
+          <span class="theme-icon" aria-hidden="true">◐</span>
+          <span class="theme-label">{copy.theme.system}</span>
+        </button>
+      </div>
+    </header>
+    <main id="main">
+      <slot />
+    </main>
+    <footer>
+      <div class="footer-brand">
+        <img src="/scrap-icon-64.png" alt="" width="32" height="32" loading="lazy" />
+        <strong>scrap</strong>
+      </div>
+      <p>{copy.footer.line}</p>
+      <div class="footer-links">
+        <a href="https://github.com/kleedaisuki/scrap">GitHub</a>
+        <a href={latestRelease}>{copy.nav.download}</a>
+        <span>{copy.footer.license}</span>
+      </div>
+    </footer>
+    <script is:inline>
+      (() => {
+        const root = document.documentElement;
+        const button = document.querySelector("[data-theme-toggle]");
+        if (!(button instanceof HTMLButtonElement)) return;
+        const icon = button.querySelector(".theme-icon");
+        const label = button.querySelector(".theme-label");
+        const order = ["auto", "light", "dark"];
+        const icons = { auto: "◐", light: "☀", dark: "☾" };
+        const labels = {
+          auto: button.dataset.labelSystem,
+          light: button.dataset.labelLight,
+          dark: button.dataset.labelDark,
+        };
+        const render = () => {
+          const theme = order.includes(root.dataset.moeTheme) ? root.dataset.moeTheme : "auto";
+          if (icon) icon.textContent = icons[theme];
+          if (label) label.textContent = labels[theme];
+          button.setAttribute("aria-label", `${button.dataset.themeLabel}: ${labels[theme]}`);
+        };
+        button.addEventListener("click", () => {
+          const current = order.includes(root.dataset.moeTheme) ? root.dataset.moeTheme : "auto";
+          const next = order[(order.indexOf(current) + 1) % order.length];
+          root.dataset.moeTheme = next;
+          try {
+            localStorage.setItem("scrap-theme", next);
+          } catch {
+            /** 存储不可用时仍保持内存主题可用。Keep the in-memory theme usable when storage is unavailable. */
+          }
+          render();
+        });
+        render();
+      })();
+    </script>
+  </body>
+</html>

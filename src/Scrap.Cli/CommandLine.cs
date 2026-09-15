@@ -7,15 +7,24 @@ namespace Scrap.Cli;
 internal sealed class CommandLine
 {
     private readonly HashSet<string> options;
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<string>> optionValues;
 
-    private CommandLine(IReadOnlyList<string> operands, HashSet<string> options)
+    private CommandLine(
+        IReadOnlyList<string> operands,
+        HashSet<string> options,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? optionValues = null)
     {
         Operands = operands;
         this.options = options;
+        this.optionValues = optionValues ?? new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
     }
 
     public IReadOnlyList<string> Operands { get; }
     public bool Has(string option) => options.Contains(option);
+
+    /// <summary>获取重复的有值选项，保持命令行顺序。 / Gets repeated valued options in command-line order.</summary>
+    public IReadOnlyList<string> Values(string option) =>
+        optionValues.TryGetValue(option, out var values) ? values : [];
 
     /// <summary>
     /// 解析仅含 flag 的命令行，拒绝重复和可能意外承载 secret 的未知选项。/
@@ -54,6 +63,68 @@ internal sealed class CommandLine
         }
 
         return new CommandLine(operands, found);
+    }
+
+    /// <summary>
+    /// 解析 flag 与可重复的有值选项；有值选项消费紧随其后的一个参数。 /
+    /// Parses flags and repeatable valued options; a valued option consumes the immediately following argument.
+    /// </summary>
+    public static CommandLine ParseWithValues(
+        string[] args,
+        IReadOnlyCollection<string> allowedFlags,
+        params string[] valuedOptions)
+    {
+        var flags = new HashSet<string>(allowedFlags, StringComparer.Ordinal);
+        var valued = new HashSet<string>(valuedOptions, StringComparer.Ordinal);
+        var found = new HashSet<string>(StringComparer.Ordinal);
+        var values = valued.ToDictionary(
+            option => option,
+            _ => new List<string>(),
+            StringComparer.Ordinal);
+        var operands = new List<string>();
+        var optionsEnded = false;
+
+        for (var index = 0; index < args.Length; index++)
+        {
+            string argument = args[index];
+            if (!optionsEnded && argument == "--")
+            {
+                optionsEnded = true;
+                continue;
+            }
+
+            if (optionsEnded || !argument.StartsWith('-') || argument == "-")
+            {
+                operands.Add(argument);
+                continue;
+            }
+
+            if (valued.Contains(argument))
+            {
+                if (++index >= args.Length)
+                {
+                    throw new CliUsageException("An option value is missing.");
+                }
+
+                values[argument].Add(args[index]);
+                continue;
+            }
+
+            if (!flags.Contains(argument))
+            {
+                throw new CliUsageException("Unknown option.");
+            }
+
+            if (!found.Add(argument))
+            {
+                throw new CliUsageException("An option was specified more than once.");
+            }
+        }
+
+        return new CommandLine(
+            operands,
+            found,
+            values.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<string>)pair.Value, StringComparer.Ordinal));
     }
 
     public void RequireOperands(int count)

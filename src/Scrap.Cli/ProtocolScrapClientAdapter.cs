@@ -110,7 +110,7 @@ internal sealed class ProtocolScrapClientAdapter : IScrapClient, IAsyncDisposabl
         ExecuteAsync(async value =>
         {
             var request = new Scrap.Protocol.SearchRequest(
-                search.Scope,
+                search.Scopes,
                 search.Query,
                 ToProtocol(search.Mode),
                 search.CaseSensitive ? ProtocolCaseSensitivity.Sensitive : ProtocolCaseSensitivity.Insensitive,

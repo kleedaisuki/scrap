@@ -1,117 +1,151 @@
-<Application xmlns="https://github.com/avaloniaui"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:Class="Scrap.Gui.App"
-             RequestedThemeVariant="Dark">
+<?xml version="1.0" ?>
+<Application xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="Scrap.Gui.App" RequestedThemeVariant="Default">
   <Application.Resources>
-    <Color x:Key="MoeInk">#16131F</Color>
-    <Color x:Key="MoeSurface">#211C2C</Color>
-    <Color x:Key="MoeSurfaceRaised">#2B2438</Color>
-    <Color x:Key="MoePink">#FF79C6</Color>
-    <Color x:Key="MoePinkSoft">#553047</Color>
-    <Color x:Key="MoeCyan">#8BE9FD</Color>
-    <Color x:Key="MoePurple">#BD93F9</Color>
-    <Color x:Key="MoeGreen">#50FA7B</Color>
-    <Color x:Key="MoeRed">#FF6E8A</Color>
-    <Color x:Key="MoeText">#F8F8F2</Color>
-    <Color x:Key="MoeMuted">#AAA2B8</Color>
-    <SolidColorBrush x:Key="InkBrush" Color="{DynamicResource MoeInk}" />
-    <SolidColorBrush x:Key="SurfaceBrush" Color="{DynamicResource MoeSurface}" />
-    <SolidColorBrush x:Key="RaisedBrush" Color="{DynamicResource MoeSurfaceRaised}" />
-    <SolidColorBrush x:Key="PinkBrush" Color="{DynamicResource MoePink}" />
-    <SolidColorBrush x:Key="PinkSoftBrush" Color="{DynamicResource MoePinkSoft}" />
-    <SolidColorBrush x:Key="CyanBrush" Color="{DynamicResource MoeCyan}" />
-    <SolidColorBrush x:Key="PurpleBrush" Color="{DynamicResource MoePurple}" />
-    <SolidColorBrush x:Key="GreenBrush" Color="{DynamicResource MoeGreen}" />
-    <SolidColorBrush x:Key="RedBrush" Color="{DynamicResource MoeRed}" />
-    <SolidColorBrush x:Key="TextBrush" Color="{DynamicResource MoeText}" />
-    <SolidColorBrush x:Key="MutedBrush" Color="{DynamicResource MoeMuted}" />
+    <ResourceDictionary>
+      <!-- MoeSegFault Style v0.1.2 语义色映射；来源 / semantic color mapping sourced from:
+           https://style.moesegfault.dev/ (retrieved 2026-09-15).
+           主按钮有意使用 accent-strong，以修正 light accent/on-accent 的非 AA 对比度。
+           Primary buttons intentionally use accent-strong to correct the non-AA light accent/on-accent contrast. -->
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <Color x:Key="MoeBackground">#FFF6EA</Color>
+          <Color x:Key="MoeBackgroundEnd">#FFF1E2</Color>
+          <Color x:Key="MoeSurface">#EBFFFBF4</Color>
+          <Color x:Key="MoeSurfaceStrong">#FFFDF8</Color>
+          <Color x:Key="MoeSurfaceMuted">#FFF1DD</Color>
+          <Color x:Key="MoeText">#4B2A1E</Color>
+          <Color x:Key="MoeTextSoft">#805648</Color>
+          <Color x:Key="MoeHeading">#26110B</Color>
+          <Color x:Key="MoeAccent">#E66A3F</Color>
+          <Color x:Key="MoeAccentStrong">#BD4525</Color>
+          <Color x:Key="MoeAccentWash">#CCFFE1CC</Color>
+          <Color x:Key="MoeOnAccent">#FFFAF2</Color>
+          <Color x:Key="MoeBorder">#BDF3BF98</Color>
+          <Color x:Key="MoeFocus">#542516</Color>
+          <Color x:Key="MoeDanger">#D65345</Color>
+          <Color x:Key="MoeSuccess">#4DAF76</Color>
+          <Color x:Key="MoeNeutral">#9C8D86</Color>
+          <Color x:Key="MoeOverlay">#66000000</Color>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <Color x:Key="MoeBackground">#21130F</Color>
+          <Color x:Key="MoeBackgroundEnd">#19100E</Color>
+          <Color x:Key="MoeSurface">#F02F1C17</Color>
+          <Color x:Key="MoeSurfaceStrong">#30201B</Color>
+          <Color x:Key="MoeSurfaceMuted">#3C241D</Color>
+          <Color x:Key="MoeText">#F6E7DC</Color>
+          <Color x:Key="MoeTextSoft">#D9B8A6</Color>
+          <Color x:Key="MoeHeading">#FFF6EF</Color>
+          <Color x:Key="MoeAccent">#F27A50</Color>
+          <Color x:Key="MoeAccentStrong">#FFB18C</Color>
+          <Color x:Key="MoeAccentWash">#6B853E2A</Color>
+          <Color x:Key="MoeOnAccent">#2B1711</Color>
+          <Color x:Key="MoeBorder">#B3A06345</Color>
+          <Color x:Key="MoeFocus">#FFE0A3</Color>
+          <Color x:Key="MoeDanger">#E87165</Color>
+          <Color x:Key="MoeSuccess">#4DAF76</Color>
+          <Color x:Key="MoeNeutral">#9C8D86</Color>
+          <Color x:Key="MoeOverlay">#99000000</Color>
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+      <SolidColorBrush x:Key="BackgroundBrush" Color="{DynamicResource MoeBackground}"/>
+      <SolidColorBrush x:Key="SurfaceBrush" Color="{DynamicResource MoeSurface}"/>
+      <SolidColorBrush x:Key="RaisedBrush" Color="{DynamicResource MoeSurfaceStrong}"/>
+      <SolidColorBrush x:Key="MutedSurfaceBrush" Color="{DynamicResource MoeSurfaceMuted}"/>
+      <SolidColorBrush x:Key="TextBrush" Color="{DynamicResource MoeText}"/>
+      <SolidColorBrush x:Key="MutedBrush" Color="{DynamicResource MoeTextSoft}"/>
+      <SolidColorBrush x:Key="HeadingBrush" Color="{DynamicResource MoeHeading}"/>
+      <SolidColorBrush x:Key="AccentBrush" Color="{DynamicResource MoeAccent}"/>
+      <SolidColorBrush x:Key="AccentStrongBrush" Color="{DynamicResource MoeAccentStrong}"/>
+      <SolidColorBrush x:Key="AccentWashBrush" Color="{DynamicResource MoeAccentWash}"/>
+      <SolidColorBrush x:Key="OnAccentBrush" Color="{DynamicResource MoeOnAccent}"/>
+      <SolidColorBrush x:Key="BorderBrush" Color="{DynamicResource MoeBorder}"/>
+      <SolidColorBrush x:Key="FocusBrush" Color="{DynamicResource MoeFocus}"/>
+      <SolidColorBrush x:Key="DangerBrush" Color="{DynamicResource MoeDanger}"/>
+      <SolidColorBrush x:Key="SuccessBrush" Color="{DynamicResource MoeSuccess}"/>
+      <SolidColorBrush x:Key="NeutralBrush" Color="{DynamicResource MoeNeutral}"/>
+      <SolidColorBrush x:Key="OverlayBrush" Color="{DynamicResource MoeOverlay}"/>
+    </ResourceDictionary>
   </Application.Resources>
-
   <Application.Styles>
-    <FluentTheme DensityStyle="Compact" />
+    <FluentTheme DensityStyle="Compact"/>
     <Style Selector="Window">
-      <Setter Property="Background" Value="{DynamicResource InkBrush}" />
-      <Setter Property="FontFamily" Value="Inter" />
+      <Setter Property="Background" Value="{DynamicResource BackgroundBrush}"/>
+      <Setter Property="FontFamily" Value="Atkinson Hyperlegible,Noto Sans SC,PingFang SC,Microsoft YaHei,Inter,sans-serif"/>
     </Style>
     <Style Selector="TextBlock">
-      <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+    </Style>
+    <Style Selector="TextBlock.heading">
+      <Setter Property="Foreground" Value="{DynamicResource HeadingBrush}"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
     <Style Selector="TextBlock.muted">
-      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
     </Style>
     <Style Selector="TextBlock.accent">
-      <Setter Property="Foreground" Value="{DynamicResource PinkBrush}" />
-      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource AccentStrongBrush}"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
     <Style Selector="Border.panel">
-      <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
-      <Setter Property="BorderBrush" Value="#493D5E" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="16" />
-      <Setter Property="Padding" Value="18" />
+      <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="18"/>
+      <Setter Property="Padding" Value="18"/>
     </Style>
-    <Style Selector="TextBox">
-      <Setter Property="Background" Value="{DynamicResource RaisedBrush}" />
-      <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
-      <Setter Property="BorderBrush" Value="#5B4B72" />
-      <Setter Property="CornerRadius" Value="10" />
-      <Setter Property="Padding" Value="12,9" />
-      <Setter Property="CaretBrush" Value="{DynamicResource PinkBrush}" />
-      <Setter Property="SelectionBrush" Value="{DynamicResource PinkSoftBrush}" />
+    <Style Selector="TextBox, ComboBox">
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="Padding" Value="12,9"/>
     </Style>
-    <Style Selector="TextBox:focus">
-      <Setter Property="BorderBrush" Value="{DynamicResource PinkBrush}" />
-      <Setter Property="BorderThickness" Value="2" />
-    </Style>
-    <Style Selector="ComboBox">
-      <Setter Property="Background" Value="{DynamicResource RaisedBrush}" />
-      <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
-      <Setter Property="BorderBrush" Value="#5B4B72" />
-      <Setter Property="CornerRadius" Value="10" />
-      <Setter Property="Padding" Value="10,7" />
+    <Style Selector="TextBox:focus, ComboBox:focus">
+      <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}"/>
+      <Setter Property="BorderThickness" Value="2"/>
     </Style>
     <Style Selector="Button">
-      <Setter Property="Background" Value="{DynamicResource RaisedBrush}" />
-      <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
-      <Setter Property="BorderBrush" Value="#5B4B72" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="10" />
-      <Setter Property="Padding" Value="13,8" />
+      <Setter Property="Background" Value="{DynamicResource MutedSurfaceBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="Padding" Value="13,8"/>
     </Style>
     <Style Selector="Button:pointerover /template/ ContentPresenter">
-      <Setter Property="Background" Value="#3A304B" />
+      <Setter Property="Background" Value="{DynamicResource AccentWashBrush}"/>
     </Style>
     <Style Selector="Button.primary">
-      <Setter Property="Background" Value="{DynamicResource PinkBrush}" />
-      <Setter Property="Foreground" Value="#241728" />
-      <Setter Property="BorderBrush" Value="{DynamicResource PinkBrush}" />
-      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="Background" Value="{DynamicResource AccentStrongBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentStrongBrush}"/>
+      <Setter Property="FontWeight" Value="Bold"/>
     </Style>
     <Style Selector="Button.danger">
-      <Setter Property="Foreground" Value="{DynamicResource RedBrush}" />
-      <Setter Property="BorderBrush" Value="#714052" />
+      <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource DangerBrush}"/>
     </Style>
     <Style Selector="RadioButton.mode">
-      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Padding" Value="10,6" />
+      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
+      <Setter Property="Padding" Value="10,6"/>
     </Style>
     <Style Selector="RadioButton.mode:checked">
-      <Setter Property="Foreground" Value="{DynamicResource CyanBrush}" />
-      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource AccentStrongBrush}"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
     <Style Selector="ListBox">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
     </Style>
     <Style Selector="ListBoxItem">
-      <Setter Property="Padding" Value="12,10" />
-      <Setter Property="Margin" Value="0,2" />
-      <Setter Property="CornerRadius" Value="10" />
-      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Padding" Value="12,10"/>
+      <Setter Property="Margin" Value="0,2"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
     </Style>
     <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource PinkSoftBrush}" />
+      <Setter Property="Background" Value="{DynamicResource AccentWashBrush}"/>
     </Style>
   </Application.Styles>
 </Application>

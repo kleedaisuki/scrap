@@ -28,8 +28,8 @@ public enum CaseSensitivity
 }
 
 /// <summary>
-/// 表示在一个明确 scope 内进行的有界 key 搜索。query 原样保留。<br/>
-/// Represents a bounded key search within one explicit scope. The query is preserved verbatim.
+/// 表示跨可选 scope 集合进行的有界 key 搜索。空集合表示全部 scope，query 原样保留。<br/>
+/// Represents a bounded key search across optional scopes. An empty collection means all scopes, and the query is preserved verbatim.
 /// </summary>
 public sealed class SearchRequest
 {
@@ -49,21 +49,21 @@ public sealed class SearchRequest
     public static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(100);
 
     private SearchRequest(
-        ScopeName scope,
+        IReadOnlyList<ScopeName> scopes,
         string query,
         SearchMode mode,
         CaseSensitivity caseSensitivity,
         int limit)
     {
-        Scope = scope;
+        Scopes = scopes;
         Query = query;
         Mode = mode;
         CaseSensitivity = caseSensitivity;
         Limit = limit;
     }
 
-    /// <summary>获取明确的目标 scope。 / Gets the explicit target scope.</summary>
-    public ScopeName Scope { get; }
+    /// <summary>获取按 ordinal 排序且去重的目标 scope；空集合表示全部。 / Gets ordinal-sorted, distinct target scopes; empty means all.</summary>
+    public IReadOnlyList<ScopeName> Scopes { get; }
 
     /// <summary>获取原样 query 或 pattern。 / Gets the verbatim query or pattern.</summary>
     public string Query { get; }
@@ -78,30 +78,44 @@ public sealed class SearchRequest
     public int Limit { get; }
 
     /// <summary>创建搜索请求，使用 fuzzy、不区分大小写与默认 limit。 / Creates a request using fuzzy, case-insensitive matching and the default limit.</summary>
-    /// <param name="scope">目标 scope。 / Target scope.</param>
+    /// <param name="scopes">目标 scope；空集合表示全部。 / Target scopes; empty means all.</param>
     /// <param name="query">原样 query。 / Verbatim query.</param>
     /// <returns>请求或结构化错误。 / The request or a structured error.</returns>
-    public static DomainResult<SearchRequest> TryCreate(string? scope, string? query) =>
-        TryCreate(scope, query, SearchMode.Fuzzy, CaseSensitivity.Insensitive, DefaultLimit);
+    public static DomainResult<SearchRequest> TryCreate(IEnumerable<string?>? scopes, string? query) =>
+        TryCreate(scopes, query, SearchMode.Fuzzy, CaseSensitivity.Insensitive, DefaultLimit);
 
     /// <summary>创建搜索请求并验证全部边界。 / Creates a search request and validates every boundary.</summary>
-    /// <param name="scope">目标 scope。 / Target scope.</param>
+    /// <param name="scopes">目标 scope；null 非法，空集合表示全部。 / Target scopes; null is invalid and empty means all.</param>
     /// <param name="query">原样 query 或 pattern；允许为空。 / Verbatim query or pattern; empty is allowed.</param>
     /// <param name="mode">搜索模式。 / Search mode.</param>
     /// <param name="caseSensitivity">大小写语义。 / Case semantics.</param>
     /// <param name="limit">1 到 500 的最大返回数量。 / Maximum result count from 1 through 500.</param>
     /// <returns>请求或首个结构化校验错误。 / The request or the first structured validation error.</returns>
     public static DomainResult<SearchRequest> TryCreate(
-        string? scope,
+        IEnumerable<string?>? scopes,
         string? query,
         SearchMode mode,
         CaseSensitivity caseSensitivity,
         int limit = DefaultLimit)
     {
-        var scopeResult = ScopeName.TryCreate(scope);
-        if (scopeResult.IsFailure)
+        if (scopes is null)
         {
-            return DomainResult.Failure<SearchRequest>(scopeResult.Error!);
+            return DomainResult.Failure<SearchRequest>(new DomainError(
+                DomainErrorCode.Required,
+                "scopes is required; use an empty collection to search all scopes.",
+                "scopes"));
+        }
+
+        var normalizedScopes = new SortedDictionary<string, ScopeName>(StringComparer.Ordinal);
+        foreach (var scope in scopes)
+        {
+            var scopeResult = ScopeName.TryCreate(scope);
+            if (scopeResult.IsFailure)
+            {
+                return DomainResult.Failure<SearchRequest>(scopeResult.Error! with { Field = "scopes" });
+            }
+
+            normalizedScopes.TryAdd(scopeResult.Value.Value, scopeResult.Value);
         }
 
         var queryError = TextRules.Validate(query, "query", MaximumQueryUtf8Bytes, allowEmpty: true);
@@ -129,7 +143,7 @@ public sealed class SearchRequest
         }
 
         return DomainResult.Success(new SearchRequest(
-            scopeResult.Value,
+            normalizedScopes.Values.ToArray(),
             query!,
             mode,
             caseSensitivity,
@@ -144,12 +158,19 @@ public sealed class SearchRequest
 }
 
 /// <summary>
-/// 表示一个匹配的 key 及其内部排序分数。分数只可排序，不是概率。<br/>
-/// Represents a matched key and its internal ranking score. The score is only ordinal, never a probability.
+/// 表示待搜索的完整 record 身份。 / Represents the complete identity of a record to search.
 /// </summary>
-/// <param name="Key">匹配的 key。 / Matched key.</param>
+/// <param name="Scope">所属 scope。 / Owning scope.</param>
+/// <param name="Key">record key。 / Record key.</param>
+public sealed record SearchCandidate(ScopeName Scope, RecordKey Key);
+
+/// <summary>
+/// 表示匹配的 scope+key 身份及内部排序分数；分数只可排序，不是概率。<br/>
+/// Represents a matched scope+key identity and its internal ranking score; the score is ordinal, never a probability.
+/// </summary>
+/// <param name="Candidate">匹配的完整身份。 / Complete matched identity.</param>
 /// <param name="Score">内部排序分数。 / Internal ranking score.</param>
-public sealed record SearchMatch(RecordKey Key, int Score);
+public sealed record SearchMatch(SearchCandidate Candidate, int Score);
 
 /// <summary>
 /// 对 key 元数据执行 exact、fuzzy 或 regex 搜索；此类型不能接触 record value。<br/>
@@ -166,40 +187,49 @@ public static class RecordSearch
     private const int MaximumEditDistance = 8;
 
     /// <summary>
-    /// 搜索 key 并确定性排序。相同分数按 key 的 ordinal 顺序排列。<br/>
-    /// Searches keys and sorts deterministically. Equal scores are ordered by ordinal key value.
+    /// 搜索 key 并确定性排序。相同分数按 scope、key 的 ordinal 顺序排列。<br/>
+    /// Searches keys and sorts deterministically. Equal scores are ordered by ordinal scope and key.
     /// </summary>
-    /// <param name="keys">同一 scope 的 key 元数据。 / Key metadata from one scope.</param>
+    /// <param name="candidates">带完整 scope+key 身份的候选。 / Candidates with complete scope+key identities.</param>
     /// <param name="request">已验证请求。 / Validated request.</param>
     /// <returns>有界结果或正则查询错误。 / Bounded results or a regex query error.</returns>
     public static DomainResult<IReadOnlyList<SearchMatch>> Search(
-        IEnumerable<RecordKey> keys,
-        SearchRequest request) => Search(keys, request, CancellationToken.None);
+        IEnumerable<SearchCandidate> candidates,
+        SearchRequest request) => Search(candidates, request, CancellationToken.None);
 
     /// <summary>
     /// 搜索 key 并确定性排序，同时允许 daemon 取消已过时或正在关闭的查询。取消会抛出 <see cref="OperationCanceledException"/>。<br/>
     /// Searches keys and sorts deterministically while allowing the daemon to cancel stale or shutting-down queries. Cancellation throws <see cref="OperationCanceledException"/>.
     /// </summary>
-    /// <param name="keys">同一 scope 的 key 元数据。 / Key metadata from one scope.</param>
+    /// <param name="candidates">带完整 scope+key 身份的候选。 / Candidates with complete scope+key identities.</param>
     /// <param name="request">已验证请求。 / Validated request.</param>
     /// <param name="cancellationToken">批次与高成本评分工作的取消信号。 / Cancellation signal checked between batches and expensive scoring work.</param>
     /// <returns>有界结果或正则查询错误。 / Bounded results or a regex query error.</returns>
     public static DomainResult<IReadOnlyList<SearchMatch>> Search(
-        IEnumerable<RecordKey> keys,
+        IEnumerable<SearchCandidate> candidates,
         SearchRequest request,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(keys);
+        ArgumentNullException.ThrowIfNull(candidates);
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
+
+        IEnumerable<SearchCandidate> eligibleCandidates = candidates;
+        if (request.Scopes.Count != 0)
+        {
+            var selectedScopes = request.Scopes
+                .Select(scope => scope.Value)
+                .ToHashSet(StringComparer.Ordinal);
+            eligibleCandidates = candidates.Where(candidate => selectedScopes.Contains(candidate.Scope.Value));
+        }
 
         return request.Mode switch
         {
             SearchMode.Exact => DomainResult.Success<IReadOnlyList<SearchMatch>>(
-                SearchExact(keys, request, cancellationToken)),
+                SearchExact(eligibleCandidates, request, cancellationToken)),
             SearchMode.Fuzzy => DomainResult.Success<IReadOnlyList<SearchMatch>>(
-                SearchFuzzy(keys, request, cancellationToken)),
-            SearchMode.Regex => SearchRegex(keys, request, cancellationToken),
+                SearchFuzzy(eligibleCandidates, request, cancellationToken)),
+            SearchMode.Regex => SearchRegex(eligibleCandidates, request, cancellationToken),
             _ => DomainResult.Failure<IReadOnlyList<SearchMatch>>(new DomainError(
                 DomainErrorCode.InvalidOption,
                 "mode must be exact, fuzzy, or regex.",
@@ -208,42 +238,43 @@ public static class RecordSearch
     }
 
     private static SearchMatch[] SearchExact(
-        IEnumerable<RecordKey> keys,
+        IEnumerable<SearchCandidate> candidates,
         SearchRequest request,
         CancellationToken cancellationToken)
     {
         var comparison = ToComparison(request.CaseSensitivity);
-        var matches = new List<RecordKey>();
+        var matches = new List<SearchCandidate>();
         var index = 0;
-        foreach (var key in keys)
+        foreach (var candidate in candidates)
         {
             if ((index++ & 63) == 0)
             {
                 cancellationToken.ThrowIfCancellationRequested();
             }
 
-            if (string.Equals(key.Value, request.Query, comparison))
+            if (string.Equals(candidate.Key.Value, request.Query, comparison))
             {
-                matches.Add(key);
+                matches.Add(candidate);
             }
         }
 
         cancellationToken.ThrowIfCancellationRequested();
         return matches
-            .OrderBy(key => key.Value, StringComparer.Ordinal)
+            .OrderBy(candidate => candidate.Scope.Value, StringComparer.Ordinal)
+            .ThenBy(candidate => candidate.Key.Value, StringComparer.Ordinal)
             .Take(request.Limit)
-            .Select(key => new SearchMatch(key, ExactScore))
+            .Select(candidate => new SearchMatch(candidate, ExactScore))
             .ToArray();
     }
 
     private static SearchMatch[] SearchFuzzy(
-        IEnumerable<RecordKey> keys,
+        IEnumerable<SearchCandidate> candidates,
         SearchRequest request,
         CancellationToken cancellationToken)
     {
         var matches = new List<SearchMatch>();
         var index = 0;
-        foreach (var key in keys)
+        foreach (var candidate in candidates)
         {
             if ((index++ & 63) == 0)
             {
@@ -251,20 +282,21 @@ public static class RecordSearch
             }
 
             matches.Add(new SearchMatch(
-                key,
-                ScoreFuzzy(key.Value, request, cancellationToken)));
+                candidate,
+                ScoreFuzzy(candidate.Key.Value, request, cancellationToken)));
         }
 
         cancellationToken.ThrowIfCancellationRequested();
         return matches
             .OrderByDescending(match => match.Score)
-            .ThenBy(match => match.Key.Value, StringComparer.Ordinal)
+            .ThenBy(match => match.Candidate.Scope.Value, StringComparer.Ordinal)
+            .ThenBy(match => match.Candidate.Key.Value, StringComparer.Ordinal)
             .Take(request.Limit)
             .ToArray();
     }
 
     private static DomainResult<IReadOnlyList<SearchMatch>> SearchRegex(
-        IEnumerable<RecordKey> keys,
+        IEnumerable<SearchCandidate> candidates,
         SearchRequest request,
         CancellationToken cancellationToken)
     {
@@ -292,9 +324,9 @@ public static class RecordSearch
 
         try
         {
-            var matchedKeys = new List<RecordKey>();
+            var matchedCandidates = new List<SearchCandidate>();
             var index = 0;
-            foreach (var key in keys)
+            foreach (var candidate in candidates)
             {
                 if ((index++ & 15) == 0)
                 {
@@ -306,9 +338,9 @@ public static class RecordSearch
                     return RegexFailure(DomainErrorCode.RegexTimeout, "regex search exceeded 100 ms.");
                 }
 
-                if (regex.IsMatch(key.Value))
+                if (regex.IsMatch(candidate.Key.Value))
                 {
-                    matchedKeys.Add(key);
+                    matchedCandidates.Add(candidate);
                 }
             }
 
@@ -318,10 +350,11 @@ public static class RecordSearch
                 return RegexFailure(DomainErrorCode.RegexTimeout, "regex search exceeded 100 ms.");
             }
 
-            IReadOnlyList<SearchMatch> matches = matchedKeys
-                .OrderBy(key => key.Value, StringComparer.Ordinal)
+            IReadOnlyList<SearchMatch> matches = matchedCandidates
+                .OrderBy(candidate => candidate.Scope.Value, StringComparer.Ordinal)
+                .ThenBy(candidate => candidate.Key.Value, StringComparer.Ordinal)
                 .Take(request.Limit)
-                .Select(key => new SearchMatch(key, ExactScore))
+                .Select(candidate => new SearchMatch(candidate, ExactScore))
                 .ToArray();
             return DomainResult.Success<IReadOnlyList<SearchMatch>>(matches);
         }

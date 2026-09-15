@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Scrap.Gui.Abstractions;
 using Scrap.Gui.Services;
@@ -39,7 +40,8 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = new MainWindowViewModel(
             client,
-            new AvaloniaClipboardService(() => TopLevel.GetTopLevel(this)?.Clipboard));
+            new AvaloniaClipboardService(() => TopLevel.GetTopLevel(this)?.Clipboard),
+            applyTheme: ApplyTheme);
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         Loaded += OnLoaded;
         Closing += OnClosing;
@@ -47,6 +49,21 @@ public partial class MainWindow : Window
     }
 
     private MainWindowViewModel ViewModel => (MainWindowViewModel)DataContext!;
+
+    private static void ApplyTheme(Models.AppTheme theme)
+    {
+        if (Application.Current is not { } application)
+        {
+            return;
+        }
+
+        application.RequestedThemeVariant = theme switch
+        {
+            Models.AppTheme.Light => ThemeVariant.Light,
+            Models.AppTheme.Dark => ThemeVariant.Dark,
+            _ => ThemeVariant.Default,
+        };
+    }
 
     private async void OnLoaded(object? sender, RoutedEventArgs eventArgs)
     {

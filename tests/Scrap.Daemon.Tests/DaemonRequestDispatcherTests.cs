@@ -361,7 +361,7 @@ public sealed class DaemonRequestDispatcherTests
         ProtocolMethods.RecordSearch => ProtocolRequest.Create(
             RequestId,
             method,
-            new ProtocolSearchRequest("工作区", "令", ProtocolSearchMode.Fuzzy, ProtocolCaseSensitivity.Sensitive, 7)),
+            new ProtocolSearchRequest(["工作区"], "令", ProtocolSearchMode.Fuzzy, ProtocolCaseSensitivity.Sensitive, 7)),
         ProtocolMethods.DaemonPing => ProtocolRequest.Create(RequestId, method, new DaemonPingParams()),
         ProtocolMethods.DaemonVersion => ProtocolRequest.Create(RequestId, method, new DaemonVersionParams()),
         ProtocolMethods.DaemonShutdown => ProtocolRequest.Create(RequestId, method, new DaemonShutdownParams()),
@@ -417,7 +417,7 @@ public sealed class DaemonRequestDispatcherTests
                 break;
             case ProtocolMethods.RecordSearch:
                 var search = Assert.IsType<ProtocolSearchRequest>(parameters);
-                Assert.Equal(("工作区", "令"), (search.Scope, search.Query));
+                Assert.Equal(("工作区", "令"), (search.Scopes.Single(), search.Query));
                 Assert.Equal(ProtocolSearchMode.Fuzzy, search.Mode);
                 Assert.Equal(ProtocolCaseSensitivity.Sensitive, search.CaseSensitivity);
                 Assert.Equal(7, search.Limit);

@@ -7,22 +7,22 @@ public sealed class SearchTests
     [Fact]
     public void SearchRequestEnforcesBoundariesAndDefaults()
     {
-        var defaults = SearchRequest.TryCreate("scope", string.Empty).Value;
+        var defaults = SearchRequest.TryCreate(["scope"], string.Empty).Value;
         var exactLimit = SearchRequest.TryCreate(
-            "scope",
+            ["scope"],
             new string('界', SearchRequest.MaximumQueryUtf8Bytes / 3),
             SearchMode.Exact,
             CaseSensitivity.Sensitive,
             SearchRequest.MaximumLimit);
         var tooLong = SearchRequest.TryCreate(
-            "scope",
+            ["scope"],
             new string('界', (SearchRequest.MaximumQueryUtf8Bytes / 3) + 1),
             SearchMode.Fuzzy,
             CaseSensitivity.Insensitive);
         var badLimit = SearchRequest.TryCreate(
-            "scope", "q", SearchMode.Fuzzy, CaseSensitivity.Insensitive, 0);
+            ["scope"], "q", SearchMode.Fuzzy, CaseSensitivity.Insensitive, 0);
         var badMode = SearchRequest.TryCreate(
-            "scope", "q", (SearchMode)99, CaseSensitivity.Insensitive);
+            ["scope"], "q", (SearchMode)99, CaseSensitivity.Insensitive);
 
         Assert.Equal(SearchMode.Fuzzy, defaults.Mode);
         Assert.Equal(CaseSensitivity.Insensitive, defaults.CaseSensitivity);
@@ -32,6 +32,54 @@ public sealed class SearchTests
         Assert.Equal(DomainErrorCode.TextTooLong, tooLong.Error?.Code);
         Assert.Equal(DomainErrorCode.OutOfRange, badLimit.Error?.Code);
         Assert.Equal(DomainErrorCode.InvalidOption, badMode.Error?.Code);
+    }
+
+    /// <summary>scope 集合按 ordinal 规范化且空集合保留“全部”语义。 / Scope collections normalize ordinally while empty preserves the “all” semantic.</summary>
+    [Fact]
+    public void SearchRequestNormalizesScopesAndSupportsAllScopes()
+    {
+        SearchRequest selected = SearchRequest.TryCreate(["z", "A", "z"], "q").Value;
+        SearchRequest all = SearchRequest.TryCreate([], "q").Value;
+
+        Assert.Equal(["A", "z"], selected.Scopes.Select(scope => scope.Value));
+        Assert.Empty(all.Scopes);
+    }
+
+    /// <summary>跨 scope 同分结果按 scope 后 key 的 ordinal 次序稳定排列。 / Cross-scope ties are stable by ordinal scope and then key.</summary>
+    [Fact]
+    public void CrossScopeTiesOrderByScopeThenKey()
+    {
+        SearchCandidate[] candidates =
+        [
+            new(ScopeName.Create("z"), RecordKey.Create("api")),
+            new(ScopeName.Create("A"), RecordKey.Create("api")),
+            new(ScopeName.Create("A"), RecordKey.Create("Api")),
+        ];
+
+        IReadOnlyList<SearchMatch> matches = RecordSearch.Search(
+            candidates,
+            SearchRequest.TryCreate([], "api", SearchMode.Exact, CaseSensitivity.Insensitive).Value).Value;
+
+        Assert.Equal(
+            [("A", "Api"), ("A", "api"), ("z", "api")],
+            matches.Select(match => (match.Candidate.Scope.Value, match.Candidate.Key.Value)));
+    }
+
+    /// <summary>显式 scope 集合在评分前过滤候选。 / Explicit scopes filter candidates before scoring.</summary>
+    [Fact]
+    public void SelectedScopesFilterCandidates()
+    {
+        SearchCandidate[] candidates =
+        [
+            new(ScopeName.Create("selected"), RecordKey.Create("api")),
+            new(ScopeName.Create("ignored"), RecordKey.Create("api")),
+        ];
+
+        SearchMatch match = Assert.Single(RecordSearch.Search(
+            candidates,
+            SearchRequest.TryCreate(["selected"], "api", SearchMode.Exact, CaseSensitivity.Sensitive).Value).Value);
+
+        Assert.Equal("selected", match.Candidate.Scope.Value);
     }
 
     /// <summary>验证 exact 使用 ordinal 大小写策略且 insensitive 可返回多个候选。 / Verifies ordinal exact matching and multiple insensitive candidates.</summary>
@@ -81,13 +129,13 @@ public sealed class SearchTests
     public void FuzzyHonorsCaseAndLimit()
     {
         var sensitive = SearchRequest.TryCreate(
-            "scope", "API", SearchMode.Fuzzy, CaseSensitivity.Sensitive, 1).Value;
+            ["scope"], "API", SearchMode.Fuzzy, CaseSensitivity.Sensitive, 1).Value;
         var insensitive = SearchRequest.TryCreate(
-            "scope", "API", SearchMode.Fuzzy, CaseSensitivity.Insensitive, 1).Value;
+            ["scope"], "API", SearchMode.Fuzzy, CaseSensitivity.Insensitive, 1).Value;
         var keys = Keys("api", "API-token");
 
-        Assert.Equal("API-token", RecordSearch.Search(keys, sensitive).Value.Single().Key.Value);
-        Assert.Equal("api", RecordSearch.Search(keys, insensitive).Value.Single().Key.Value);
+        Assert.Equal("API-token", RecordSearch.Search(keys, sensitive).Value.Single().Candidate.Key.Value);
+        Assert.Equal("api", RecordSearch.Search(keys, insensitive).Value.Single().Candidate.Key.Value);
     }
 
     /// <summary>验证 regex 使用 .NET 语义、支持回退构造且确定性排序。 / Verifies .NET regex semantics, fallback constructs, and deterministic ordering.</summary>
@@ -147,9 +195,9 @@ public sealed class SearchTests
     public void FuzzyEditDistanceHasBoundedAllocation()
     {
         var keys = Enumerable.Range(0, 2_000)
-            .Select(index => RecordKey.Create(
+            .Select(index => new SearchCandidate(ScopeName.Create("scope"), RecordKey.Create(
                 index.ToString("D4", System.Globalization.CultureInfo.InvariantCulture) +
-                new string('x', RecordKey.MaximumUtf8Bytes - 4)))
+                new string('x', RecordKey.MaximumUtf8Bytes - 4))))
             .ToArray();
         var request = Request(
             new string('y', RecordKey.MaximumUtf8Bytes),
@@ -182,9 +230,9 @@ public sealed class SearchTests
     public void RegexTimeoutCoversWholeSearch()
     {
         var keys = Enumerable.Range(0, 100)
-            .Select(index => RecordKey.Create(
+            .Select(index => new SearchCandidate(ScopeName.Create("scope"), RecordKey.Create(
                 new string('a', 18) + "!" +
-                index.ToString(System.Globalization.CultureInfo.InvariantCulture)))
+                index.ToString(System.Globalization.CultureInfo.InvariantCulture))))
             .ToArray();
 
         var result = RecordSearch.Search(
@@ -217,18 +265,18 @@ public sealed class SearchTests
         string query,
         SearchMode mode,
         CaseSensitivity caseSensitivity) => SearchRequest.TryCreate(
-            "scope",
+            ["scope"],
             query,
             mode,
             caseSensitivity).Value;
 
-    private static RecordKey[] Keys(params string[] values) =>
-        values.Select(RecordKey.Create).ToArray();
+    private static SearchCandidate[] Keys(params string[] values) =>
+        values.Select(key => new SearchCandidate(ScopeName.Create("scope"), RecordKey.Create(key))).ToArray();
 
     private static string[] Values(IEnumerable<SearchMatch> matches) =>
-        matches.Select(match => match.Key.Value).ToArray();
+        matches.Select(match => match.Candidate.Key.Value).ToArray();
 
-    private static IEnumerable<RecordKey> CancelAfterBatch(CancellationTokenSource cancellation)
+    private static IEnumerable<SearchCandidate> CancelAfterBatch(CancellationTokenSource cancellation)
     {
         for (var index = 0; index < 10_000; index++)
         {
@@ -237,9 +285,9 @@ public sealed class SearchTests
                 cancellation.Cancel();
             }
 
-            yield return RecordKey.Create(
+            yield return new SearchCandidate(ScopeName.Create("scope"), RecordKey.Create(
                 index.ToString("D5", System.Globalization.CultureInfo.InvariantCulture) +
-                new string('x', RecordKey.MaximumUtf8Bytes - 5));
+                new string('x', RecordKey.MaximumUtf8Bytes - 5)));
         }
     }
 }

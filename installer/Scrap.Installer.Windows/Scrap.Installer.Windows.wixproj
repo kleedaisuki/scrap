@@ -1,0 +1,15 @@
+<Project Sdk="WixToolset.Sdk/6.0.0">
+  <PropertyGroup>
+    <!-- 构建脚本必须显式传入版本与暂存载荷，避免安装器偷偷依赖陈旧文件。
+         The packaging script must pass the version and staged payload explicitly so the installer cannot consume stale files. -->
+    <ProductVersion Condition="'$(ProductVersion)' == ''">0.0.0</ProductVersion>
+    <ReleaseVersion Condition="'$(ReleaseVersion)' == ''">$(ProductVersion)</ReleaseVersion>
+    <PayloadDir Condition="'$(PayloadDir)' == ''">$(MSBuildThisFileDirectory)..\..\artifacts\payload</PayloadDir>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <OutputName>scrap-v$(ReleaseVersion)-$(RuntimeIdentifier)</OutputName>
+    <DefineConstants>$(DefineConstants);ProductVersion=$(ProductVersion);PayloadDir=$(PayloadDir);RepositoryRoot=$(MSBuildThisFileDirectory)..\..</DefineConstants>
+    <!-- ICE91 假设将来可能切换到 per-machine；本产品固定为 per-user。ICE61 与有意的同版本升级冲突。
+         ICE91 assumes a possible per-machine context; this package is permanently per-user. ICE61 conflicts with intentional same-version upgrades. -->
+    <SuppressIces>$(SuppressIces);ICE61;ICE91</SuppressIces>
+  </PropertyGroup>
+</Project>

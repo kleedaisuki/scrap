@@ -97,7 +97,7 @@ internal sealed class ProtocolScrapClientAdapter : IScrapClient
         {
             SharedClient client = await GetClientAsync(cancellationToken);
             var protocolRequest = new SearchRequest(
-                request.Scope,
+                request.Scopes,
                 request.Query,
                 ToProtocol(request.Mode),
                 request.CaseSensitive ? CaseSensitivity.Sensitive : CaseSensitivity.Insensitive,
@@ -105,7 +105,7 @@ internal sealed class ProtocolScrapClientAdapter : IScrapClient
             RecordSearchResult result = await client.SearchRecordsAsync(protocolRequest, cancellationToken);
 
             return result.Records
-                .Select(record => new RecordCandidate(record.Key, ToGui(record.Presentation)))
+                .Select(record => new RecordCandidate(record.Scope, record.Key, ToGui(record.Presentation)))
                 .ToArray();
         }
         catch (Exception exception)

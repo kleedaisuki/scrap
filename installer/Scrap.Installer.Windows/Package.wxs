@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  用户数据位于 %USERPROFILE%\.scrap，不属于任何 MSI Component，所以升级和卸载均不会删除数据。
+  User data lives at %USERPROFILE%\.scrap and belongs to no MSI Component, so upgrades and uninstall never remove it.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Id="MoeSegfault.Scrap"
+    Name="Scrap"
+    Manufacturer="MoeSegfault"
+    Version="$(var.ProductVersion)"
+    UpgradeCode="{925E0CD8-947D-471D-8355-CABBDDD11AC3}"
+    Scope="perUser"
+    InstallerVersion="500"
+    Compressed="yes">
+
+    <!-- Major upgrade 保留稳定 UpgradeCode，并阻止旧安装器覆盖新版本。
+         Major upgrades retain a stable UpgradeCode and prevent an older installer from replacing a newer release. -->
+    <!-- MSI 不比较 SemVer 预发布标签；允许同数字版本升级可使 1.2.3-beta 正常升级到 1.2.3。
+         MSI does not compare SemVer prerelease labels; same-version upgrades let 1.2.3-beta upgrade cleanly to 1.2.3. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of Scrap is already installed. / 已安装更新版本的 Scrap。" />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- ARP 与开始菜单共用产品图标。The ARP entry and Start menu shortcut share the product icon. -->
+    <Icon Id="ScrapIcon" SourceFile="$(var.RepositoryRoot)\src\Scrap.Gui\Assets\scrap.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ScrapIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://scrap.moesegfault.dev/" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="INSTALLFOLDER" Name="Scrap" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="Scrap" />
+    </StandardDirectory>
+
+    <Feature Id="ProductFeature" Title="Scrap" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      <!-- 每个可执行文件都是独立、稳定的 MSI Component key path。
+           Each executable is an independent, stable MSI Component key path. -->
+      <Component Id="ScrapCliComponent" Guid="{660B6F6C-BE08-4B88-A0D6-B023245BB009}">
+        <File Id="ScrapCliFile" Source="$(var.PayloadDir)\scrap.exe" />
+        <RegistryValue Root="HKCU" Key="Software\MoeSegfault\Scrap\Components" Name="Cli" Value="1" Type="integer" KeyPath="yes" />
+      </Component>
+      <Component Id="ScrapDaemonComponent" Guid="{227A7BB9-1161-40FB-BE39-DFE208D73498}">
+        <File Id="ScrapDaemonFile" Source="$(var.PayloadDir)\scrapd.exe" />
+        <RegistryValue Root="HKCU" Key="Software\MoeSegfault\Scrap\Components" Name="Daemon" Value="1" Type="integer" KeyPath="yes" />
+      </Component>
+      <Component Id="ScrapGuiComponent" Guid="{88591DDD-FF24-470B-8A67-F94673928403}">
+        <File Id="ScrapGuiFile" Source="$(var.PayloadDir)\scrap-gui.exe" />
+        <RegistryValue Root="HKCU" Key="Software\MoeSegfault\Scrap\Components" Name="Gui" Value="1" Type="integer" KeyPath="yes" />
+      </Component>
+
+      <!-- PATH 是可逆的用户级环境变量变更；卸载时 MSI 只移除本项添加的片段。
+           PATH is a reversible per-user environment change; MSI removes only the segment it owns. -->
+      <Component Id="UserPathComponent" Guid="{D20E684D-E886-4862-8505-43A3AE211A98}">
+        <Environment Id="ScrapUserPath" Name="PATH" Value="[INSTALLFOLDER]" Action="set" Part="last" System="no" />
+        <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\MoeSegfault\Scrap" Name="InstallPath" Value="[INSTALLFOLDER]" Type="string" KeyPath="yes" />
+      </Component>
+
+      <!-- 快捷方式单独使用 HKCU key path，符合 per-user MSI 组件规则。
+           The shortcut uses a dedicated HKCU key path, matching per-user MSI component rules. -->
+      <Component Id="StartMenuShortcutComponent" Directory="ApplicationProgramsFolder" Guid="{192E9444-2247-4AE6-825A-A22F0D5F8BC4}">
+        <Shortcut Id="ScrapGuiShortcut" Name="Scrap" Description="Local encrypted record store / 本地加密记录库" Target="[INSTALLFOLDER]scrap-gui.exe" WorkingDirectory="INSTALLFOLDER" Icon="ScrapIcon" />
+        <RemoveFolder Id="RemoveApplicationProgramsFolder" Directory="ApplicationProgramsFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\MoeSegfault\Scrap" Name="StartMenuShortcut" Value="1" Type="integer" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

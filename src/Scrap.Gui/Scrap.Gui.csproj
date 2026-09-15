@@ -5,7 +5,16 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Windows apphost 图标；ApplicationIcon 仅影响 Windows，不改变其他平台资源。
+         Windows apphost icon; ApplicationIcon only affects Windows and leaves other platforms unchanged. -->
+    <ApplicationIcon>Assets\scrap.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 窗口图标作为 Avalonia 资源嵌入，确保 Windows、Linux 与 macOS 使用同一品牌资产。
+         Embed the window icon as an Avalonia resource so Windows, Linux, and macOS share the same brand asset. -->
+    <AvaloniaResource Include="Assets\scrap.png" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.1.2" />

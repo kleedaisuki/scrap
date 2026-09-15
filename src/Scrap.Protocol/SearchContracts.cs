@@ -31,13 +31,13 @@ public enum CaseSensitivity
 /// 表示 <c>record.search</c> 的完整请求。搜索只针对 key，绝不针对 value。
 /// / Represents the complete <c>record.search</c> request. Search targets keys only, never values.
 /// </summary>
-/// <param name="Scope">目标精确 scope 名称。 / Exact target scope name.</param>
+/// <param name="Scopes">可选的精确 scope 名称集合；空集合表示检索全部 scope。 / Optional exact scope names; an empty collection searches every scope.</param>
 /// <param name="Query">查询文本或 regex pattern。 / Query text or regular-expression pattern.</param>
 /// <param name="Mode">搜索模式。 / Search mode.</param>
 /// <param name="CaseSensitivity">大小写修饰符。 / Case-sensitivity modifier.</param>
 /// <param name="Limit">daemon 排序后返回的最大候选数。 / Maximum candidates returned after daemon ranking.</param>
 public sealed record SearchRequest(
-    string Scope,
+    IReadOnlyList<string> Scopes,
     string Query,
     SearchMode Mode = SearchMode.Fuzzy,
     CaseSensitivity CaseSensitivity = CaseSensitivity.Insensitive,

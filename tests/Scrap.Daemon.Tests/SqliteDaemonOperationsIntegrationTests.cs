@@ -237,14 +237,14 @@ public sealed class SqliteDaemonOperationsIntegrationTests
 
         RecordSearchResult valueSearch = await context.Operations.SearchRecordsAsync(
             new ProtocolSearchRequest(
-                "search",
+                ["search"],
                 secret,
                 ProtocolSearchMode.Exact,
                 ProtocolCaseSensitivity.Sensitive),
             default);
         RecordSearchResult keySearch = await context.Operations.SearchRecordsAsync(
             new ProtocolSearchRequest(
-                "search",
+                ["search"],
                 "VisibleKey",
                 ProtocolSearchMode.Exact,
                 ProtocolCaseSensitivity.Sensitive),
@@ -257,6 +257,29 @@ public sealed class SqliteDaemonOperationsIntegrationTests
         Assert.DoesNotContain(
             typeof(RecordSummaryDto).GetProperties(),
             property => string.Equals(property.Name, "Value", StringComparison.Ordinal));
+    }
+
+    /// <summary>空 scope 集合检索全部，显式集合仅检索选定 scope，且同分排名确定。 / Empty scopes search all, explicit scopes filter, and tied ranking is deterministic.</summary>
+    [Fact]
+    public async Task SearchSupportsSelectedAndAllScopesAsync()
+    {
+        using var context = await OperationsContext.CreateAsync();
+        foreach (var scope in new[] { "z", "A", "ignored" })
+        {
+            await context.Operations.CreateScopeAsync(new(scope), default);
+            await context.Operations.SetRecordAsync(new(scope, "api", "value"), default);
+        }
+
+        RecordSearchResult selected = await context.Operations.SearchRecordsAsync(
+            new ProtocolSearchRequest(["z", "A"], "api", ProtocolSearchMode.Exact),
+            default);
+        RecordSearchResult all = await context.Operations.SearchRecordsAsync(
+            new ProtocolSearchRequest([], "api", ProtocolSearchMode.Exact),
+            default);
+
+        Assert.Equal(["A", "z"], selected.Records.Select(record => record.Scope));
+        Assert.Equal(["A", "ignored", "z"], all.Records.Select(record => record.Scope));
+        Assert.All(all.Records, record => Assert.Equal("api", record.Key));
     }
 
     /// <summary>非空 scope 仅在显式 recursive 时删除并报告级联数量。 / A non-empty scope is deleted only with explicit recursion and reports its cascade count.</summary>
