@@ -14,16 +14,14 @@ export interface SiteCopy {
     secondary: string;
     availability: string;
   };
-  demo: {
-    scope: string;
-    scopes: string[];
-    search: string;
-    mode: string;
-    keys: string[];
-    selected: string;
-    value: string;
-    copy: string;
-    reveal: string;
+  showcase: {
+    scopeAlt: string;
+    scopeCaption: string;
+    kicker: string;
+    title: string;
+    body: string;
+    createAlt: string;
+    createCaption: string;
   };
   problem: { kicker: string; title: string; body: string };
   features: Array<{ number: string; title: string; body: string; tag: string }>;
@@ -61,16 +59,14 @@ export const copy: Record<Locale, SiteCopy> = {
       secondary: "查看其他平台",
       availability: "Windows · macOS · Linux",
     },
-    demo: {
-      scope: "检索范围",
-      scopes: ["全部 scope", "cloudflare", "github", "staging"],
-      search: "搜索 key…",
-      mode: "模糊匹配",
-      keys: ["api_token", "deploy_hook", "account_id"],
-      selected: "cloudflare / api_token",
-      value: "••••••••••••••••••••",
-      copy: "复制",
-      reveal: "显示",
+    showcase: {
+      scopeAlt: "scrap 桌面端正在两个 scope 中检索，staging 与 production 已选中",
+      scopeCaption: "把检索边界组合起来，而不是被单一 scope 困住。",
+      kicker: "真实的桌面体验",
+      title: "不靠猜，界面把语义讲清楚。",
+      body: "编辑时显示，只影响眼前的输入；保存后是否默认遮罩，是另一项明确的选择。两种显示方式使用相同的加密存储。",
+      createAlt: "scrap 桌面端的新建记录窗口，分别展示编辑时显示与保存后的默认显示方式",
+      createCaption: "“现在能否看见”和“以后默认如何显示”，各自回答各自的问题。",
     },
     problem: {
       kicker: "少一点零散，多一点确定",
@@ -123,16 +119,14 @@ export const copy: Record<Locale, SiteCopy> = {
       secondary: "Other platforms",
       availability: "Windows · macOS · Linux",
     },
-    demo: {
-      scope: "Search scope",
-      scopes: ["All scopes", "cloudflare", "github", "staging"],
-      search: "Search keys…",
-      mode: "Fuzzy",
-      keys: ["api_token", "deploy_hook", "account_id"],
-      selected: "cloudflare / api_token",
-      value: "••••••••••••••••••••",
-      copy: "Copy",
-      reveal: "Reveal",
+    showcase: {
+      scopeAlt: "The scrap desktop app searching across the selected staging and production scopes",
+      scopeCaption: "Compose the search boundary instead of being trapped in one scope.",
+      kicker: "A real desktop experience",
+      title: "The interface says what each choice means.",
+      body: "Showing a value while editing affects only the field in front of you. Its default display after saving is a separate, explicit choice. Both use the same encrypted storage.",
+      createAlt: "The scrap desktop app new-record dialog separating show-while-editing from the default display after saving",
+      createCaption: "What you can see now and what appears by default later are two different questions.",
     },
     problem: {
       kicker: "Less scattered. More certain.",

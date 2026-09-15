@@ -18,6 +18,15 @@ describe("localized product copy", () => {
       expect(locale.hero.primary).toBeTruthy();
     }
   });
+
+  it("provides localized context for real product screenshots", () => {
+    for (const locale of Object.values(copy)) {
+      expect(locale.showcase.scopeAlt.length).toBeGreaterThan(30);
+      expect(locale.showcase.createAlt.length).toBeGreaterThan(30);
+      expect(locale.showcase.scopeCaption).toBeTruthy();
+      expect(locale.showcase.createCaption).toBeTruthy();
+    }
+  });
 });
 
 /** Guards the bilingual policy's structure and material disclosures. / 守护双语政策的结构与关键披露。 */
