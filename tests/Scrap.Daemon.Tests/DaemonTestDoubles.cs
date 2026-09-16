@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Scrap.Protocol;
 using ProtocolSearchRequest = Scrap.Protocol.SearchRequest;
 
@@ -245,6 +247,11 @@ internal sealed class SingleConnectionAcceptor : IConnectionAcceptor
     public int Calls => Volatile.Read(ref calls);
 
     /// <inheritdoc />
+    public void Bind()
+    {
+    }
+
+    /// <inheritdoc />
     public async ValueTask<Stream> AcceptAsync(CancellationToken cancellationToken)
     {
         if (Interlocked.Increment(ref calls) == 1)
@@ -255,7 +262,115 @@ internal sealed class SingleConnectionAcceptor : IConnectionAcceptor
         await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
         throw new InvalidOperationException("An infinite delay unexpectedly completed without cancellation.");
     }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        GC.SuppressFinalize(this);
+    }
 }
+
+/// <summary>
+/// 为 listener 生命周期测试提供可编程的 bind 与 accept 行为。
+/// / Provides programmable bind and accept behavior for listener lifecycle tests.
+/// </summary>
+internal sealed class ProgrammableConnectionAcceptor : IConnectionAcceptor
+{
+    private readonly Func<int, Exception?> bindFailure;
+    private readonly Func<CancellationToken, ValueTask<Stream>> accept;
+    private readonly Action<string>? observer;
+    private int bindCalls;
+
+    /// <summary>
+    /// 初始化可编程 acceptor。 / Initializes a programmable acceptor.
+    /// </summary>
+    /// <param name="accept">accept 实现。 / Accept implementation.</param>
+    /// <param name="bindFailure">根据调用次数返回 bind 异常。 / Returns a bind exception for a call number.</param>
+    /// <param name="observer">调用顺序观察器。 / Call-order observer.</param>
+    public ProgrammableConnectionAcceptor(
+        Func<CancellationToken, ValueTask<Stream>> accept,
+        Func<int, Exception?>? bindFailure = null,
+        Action<string>? observer = null)
+    {
+        this.accept = accept;
+        this.bindFailure = bindFailure ?? (_ => null);
+        this.observer = observer;
+    }
+
+    /// <summary>
+    /// 获取 bind 调用次数。 / Gets the number of bind calls.
+    /// </summary>
+    public int BindCalls => Volatile.Read(ref bindCalls);
+
+    /// <inheritdoc />
+    public void Bind()
+    {
+        int call = Interlocked.Increment(ref bindCalls);
+        observer?.Invoke("bind");
+        Exception? failure = bindFailure(call);
+        if (failure is not null)
+        {
+            throw failure;
+        }
+    }
+
+    /// <inheritdoc />
+    public ValueTask<Stream> AcceptAsync(CancellationToken cancellationToken)
+    {
+        observer?.Invoke("accept");
+        return accept(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        GC.SuppressFinalize(this);
+    }
+}
+
+/// <summary>
+/// 收集已渲染日志，并保留传给 logging pipeline 的异常引用。
+/// / Collects rendered logs and preserves exception references passed to the logging pipeline.
+/// </summary>
+internal sealed class CollectingTestLogger<T> : ILogger<T>
+{
+    private readonly Action<TestLogEntry>? observer;
+
+    /// <summary>
+    /// 初始化 logger。 / Initializes the logger.
+    /// </summary>
+    /// <param name="observer">每条日志的可选观察器。 / Optional observer for each log entry.</param>
+    public CollectingTestLogger(Action<TestLogEntry>? observer = null) => this.observer = observer;
+
+    /// <summary>
+    /// 获取收集的日志。 / Gets the collected log entries.
+    /// </summary>
+    public ConcurrentQueue<TestLogEntry> Entries { get; } = new();
+
+    /// <inheritdoc />
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+    /// <inheritdoc />
+    public bool IsEnabled(LogLevel logLevel) => true;
+
+    /// <inheritdoc />
+    public void Log<TState>(
+        LogLevel logLevel,
+        EventId eventId,
+        TState state,
+        Exception? exception,
+        Func<TState, Exception?, string> formatter)
+    {
+        var entry = new TestLogEntry(logLevel, eventId, formatter(state, exception), exception);
+        Entries.Enqueue(entry);
+        observer?.Invoke(entry);
+    }
+}
+
+/// <summary>
+/// 表示一条收集的测试日志。 / Represents one collected test log entry.
+/// </summary>
+internal sealed record TestLogEntry(LogLevel Level, EventId EventId, string Message, Exception? Exception);
 
 /// <summary>
 /// 为 dispatcher 提供无存储副作用的可配置 daemon 操作。 / Provides configurable daemon operations without storage side effects.

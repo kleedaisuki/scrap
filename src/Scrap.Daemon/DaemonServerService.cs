@@ -25,6 +25,12 @@ internal sealed class DaemonServerService : BackgroundService
             new EventId(1203, "IpcHandlerFailure"),
             "IPC connection handler failed ({ExceptionType}); payload was not logged.");
 
+    private static readonly Action<ILogger, string, string, int, Exception?> LogListenerFailure =
+        LoggerMessage.Define<string, string, int>(
+            LogLevel.Error,
+            new EventId(1204, "IpcListenerFailure"),
+            "IPC listener failed during {Phase} ({ExceptionType}, HResult {HResult}); exception details were not logged.");
+
     private readonly IConnectionAcceptor acceptor;
     private readonly DaemonConnectionProcessor processor;
     private readonly DaemonActivityTracker activity;
@@ -51,19 +57,48 @@ internal sealed class DaemonServerService : BackgroundService
     }
 
     /// <inheritdoc />
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public override Task StartAsync(CancellationToken cancellationToken)
     {
-        LogStarted(logger, null);
-
         try
         {
-            while (!state.IsStopping && !stoppingToken.IsCancellationRequested)
+            // .NET 10 runs all of ExecuteAsync in the background. Bind here so successful host startup
+            // guarantees that the IPC endpoint is already reachable, independent of hosted-service order.
+            acceptor.Bind();
+        }
+        catch (Exception exception)
+        {
+            LogListenerError("startup-bind", exception);
+            throw;
+        }
+
+        LogStarted(logger, null);
+        return base.StartAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            while (true)
             {
-                Stream stream = await acceptor.AcceptAsync(stoppingToken).ConfigureAwait(false);
+                Stream stream = await AcceptAsync(stoppingToken).ConfigureAwait(false);
                 if (!activity.TryBeginConnection(state, out IDisposable? lease))
                 {
                     await stream.DisposeAsync().ConfigureAwait(false);
                     break;
+                }
+
+                try
+                {
+                    acceptor.Bind();
+                }
+                catch (Exception exception)
+                {
+                    lease!.Dispose();
+                    await stream.DisposeAsync().ConfigureAwait(false);
+                    LogListenerError("replacement-bind", exception);
+                    throw;
                 }
 
                 Track(HandleConnectionAsync(stream, lease!, stoppingToken));
@@ -80,6 +115,26 @@ internal sealed class DaemonServerService : BackgroundService
             LogStopped(logger, null);
         }
     }
+
+    private async ValueTask<Stream> AcceptAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            return await acceptor.AcceptAsync(stoppingToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            LogListenerError("accept", exception);
+            throw;
+        }
+    }
+
+    private void LogListenerError(string phase, Exception exception) =>
+        LogListenerFailure(logger, phase, exception.GetType().Name, exception.HResult, null);
 
     /// <inheritdoc />
     public override Task StopAsync(CancellationToken cancellationToken)
