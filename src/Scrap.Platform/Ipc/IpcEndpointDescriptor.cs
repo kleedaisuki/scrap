@@ -11,10 +11,10 @@ namespace Scrap.Platform.Ipc;
 /// Describes and creates a current-user-only .NET named-pipe endpoint.
 /// </summary>
 /// <remarks>
-/// Windows 使用打包应用可访问的 <c>LOCAL\</c> namespace 内的稳定哈希名称；Unix 使用 <c>.scrap/run</c> 内的
-/// rooted pipe name，.NET 将其绑定为 Unix domain socket。
+/// Windows 使用打包应用可访问的 <c>LOCAL\</c> namespace 内的稳定哈希名称；Unix 使用
+/// <c>XDG_RUNTIME_DIR</c> 或按用户隔离的临时目录中的 rooted pipe name，.NET 将其绑定为 Unix domain socket。
 /// Windows uses a stable hashed name in the packaged-app-compatible <c>LOCAL\</c> namespace. Unix uses a rooted pipe name below
-/// <c>.scrap/run</c>, which .NET binds as a Unix domain socket.
+/// <c>XDG_RUNTIME_DIR</c> or a per-user temporary directory, which .NET binds as a Unix domain socket.
 /// daemon 必须先取得 <see cref="Processes.DaemonInstanceLease"/>，再创建 server stream，以免并发 bind 竞争删除 winner 的 socket。
 /// The daemon must acquire <see cref="Processes.DaemonInstanceLease"/> before creating the server stream so a competing bind cannot unlink the winner's socket.
 /// </remarks>
@@ -44,7 +44,12 @@ public sealed class IpcEndpointDescriptor
         ArgumentNullException.ThrowIfNull(paths);
         string identity = CurrentUserIdentity.GetStableId();
         bool isWindows = OperatingSystem.IsWindows();
-        string pipeName = CreatePipeName(paths, identity, isWindows);
+        string pipeName = CreatePipeName(
+            paths,
+            identity,
+            isWindows,
+            Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR"),
+            isWindows ? Path.GetTempPath() : "/tmp");
         return new IpcEndpointDescriptor(pipeName, paths);
     }
 
@@ -57,6 +62,24 @@ public sealed class IpcEndpointDescriptor
     /// <param name="isWindows">是否应生成 Windows endpoint。Whether to generate a Windows endpoint.</param>
     /// <returns>传给 .NET named-pipe API 的名称。The name passed to the .NET named-pipe API.</returns>
     internal static string CreatePipeName(ScrapPathLayout paths, string identity, bool isWindows)
+        => CreatePipeName(paths, identity, isWindows, xdgRuntimeDirectory: null, Path.GetTempPath());
+
+    /// <summary>
+    /// 使用显式运行时路径输入构造确定性 pipe name，以便无环境变量地测试 Unix 策略。
+    /// Creates a deterministic pipe name from explicit runtime-path inputs so the Unix policy can be tested without environment variables.
+    /// </summary>
+    /// <param name="paths">已规范化的 profile 布局。The normalized profile layout.</param>
+    /// <param name="identity">稳定的当前用户标识。The stable current-user identity.</param>
+    /// <param name="isWindows">是否应生成 Windows endpoint。Whether to generate a Windows endpoint.</param>
+    /// <param name="xdgRuntimeDirectory">可选的 XDG 运行时目录；只接受绝对路径。Optional XDG runtime directory; only absolute paths are accepted.</param>
+    /// <param name="temporaryDirectory">XDG 不可用时的绝对临时目录。The absolute temporary directory used when XDG is unavailable.</param>
+    /// <returns>传给 .NET named-pipe API 的名称。The name passed to the .NET named-pipe API.</returns>
+    internal static string CreatePipeName(
+        ScrapPathLayout paths,
+        string identity,
+        bool isWindows,
+        string? xdgRuntimeDirectory,
+        string temporaryDirectory)
     {
         ArgumentNullException.ThrowIfNull(paths);
         ArgumentException.ThrowIfNullOrWhiteSpace(identity);
@@ -74,14 +97,56 @@ public sealed class IpcEndpointDescriptor
             return $@"LOCAL\scrap-{suffix}";
         }
 
-        string socketPath = Path.Combine(paths.RunDirectory, $"ipc-{suffix[..8]}.sock");
+        string runtimeDirectory = ResolveUnixRuntimeDirectory(identity, xdgRuntimeDirectory, temporaryDirectory);
+        string socketPath = Path.Combine(runtimeDirectory, $"ipc-{suffix[..8]}.sock");
         int socketPathBytes = Encoding.UTF8.GetByteCount(socketPath);
+
+        // A valid but deeply nested XDG directory is unusable for AF_UNIX. Falling back keeps the
+        // common short-path case normal instead of making callers understand socket ABI limits.
+        // 有效但层级过深的 XDG 目录无法用于 AF_UNIX。回退可避免让调用者理解 socket ABI 限制。
+        if (socketPathBytes > UnixSocketPathConservativeLimit &&
+            !string.IsNullOrWhiteSpace(xdgRuntimeDirectory) &&
+            Path.IsPathFullyQualified(xdgRuntimeDirectory))
+        {
+            runtimeDirectory = ResolveUnixRuntimeDirectory(identity, xdgRuntimeDirectory: null, temporaryDirectory);
+            socketPath = Path.Combine(runtimeDirectory, $"ipc-{suffix[..8]}.sock");
+            socketPathBytes = Encoding.UTF8.GetByteCount(socketPath);
+        }
+
         if (socketPathBytes > UnixSocketPathConservativeLimit)
         {
             throw new PlatformPathException($"The Unix IPC endpoint path is too long ({socketPathBytes} bytes; maximum supported is {UnixSocketPathConservativeLimit}).");
         }
 
         return socketPath;
+    }
+
+    /// <summary>
+    /// 选择 Unix 运行时目录：优先私有 XDG 子目录，否则使用按稳定用户标识隔离的临时目录。
+    /// Selects the Unix runtime directory: a private XDG child first, otherwise a temporary directory isolated by stable user identity.
+    /// </summary>
+    /// <param name="identity">稳定的当前用户标识。The stable current-user identity.</param>
+    /// <param name="xdgRuntimeDirectory">可选的 XDG 运行时目录。The optional XDG runtime directory.</param>
+    /// <param name="temporaryDirectory">回退临时目录。The fallback temporary directory.</param>
+    /// <returns>规范化的绝对运行时目录。A normalized absolute runtime directory.</returns>
+    internal static string ResolveUnixRuntimeDirectory(string identity, string? xdgRuntimeDirectory, string temporaryDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(identity);
+        ArgumentException.ThrowIfNullOrWhiteSpace(temporaryDirectory);
+
+        if (!string.IsNullOrWhiteSpace(xdgRuntimeDirectory) && Path.IsPathFullyQualified(xdgRuntimeDirectory))
+        {
+            return Path.Combine(Path.GetFullPath(xdgRuntimeDirectory), "scrap");
+        }
+
+        if (!Path.IsPathFullyQualified(temporaryDirectory))
+        {
+            throw new PlatformPathException("The temporary directory used for Unix IPC must be an absolute path.");
+        }
+
+        byte[] identityHash = SHA256.HashData(Encoding.UTF8.GetBytes($"scrap-runtime-v1\0{identity}"));
+        string identitySuffix = Convert.ToHexStringLower(identityHash.AsSpan(0, 8));
+        return Path.Combine(Path.GetFullPath(temporaryDirectory), $"scrap-{identitySuffix}");
     }
 
     /// <summary>
@@ -99,6 +164,11 @@ public sealed class IpcEndpointDescriptor
     public NamedPipeServerStream CreateServerStream(int maxInstances = NamedPipeServerStream.MaxAllowedServerInstances)
     {
         Paths.Initialize();
+        if (!OperatingSystem.IsWindows())
+        {
+            PlatformPathPermissions.EnsurePrivateDirectory(Path.GetDirectoryName(PipeName)!);
+        }
+
         var stream = new NamedPipeServerStream(
             PipeName,
             PipeDirection.InOut,

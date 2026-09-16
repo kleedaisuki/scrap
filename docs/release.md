@@ -113,6 +113,8 @@ Purge 不是物理安全擦除（secure erasure）：SSD、备份、macOS Keycha
 
 Linux 需要 `libsecret-1`、GLib/GIO、用户会话 D-Bus 和已解锁的 Secret Service。Debian/Ubuntu 通常安装 `libsecret-1-0`，Fedora/Arch 通常安装 `libsecret`。安装器只做非阻塞预检；SSH、WSL 或 headless 会话没有 keyring 时仍可部署，但使用 store 的命令会以退出码 `6` 报告不可用。`daemon ping/version` 成功只说明 IPC 生命周期正常，不证明 key provider 可用。
 
+Linux/Unix 的 IPC socket 使用 `$XDG_RUNTIME_DIR/scrap`；若变量缺失、为空或不是绝对路径，则使用 `/tmp` 下按当前用户隔离且权限为 `0700` 的 Scrap runtime 目录。socket 不放在 `~/.scrap`，因为 HOME 可能位于 NFS、DrvFS 或其他不支持 Unix domain socket 的挂载。若显式配置的 `XDG_RUNTIME_DIR` 所在文件系统不支持 `AF_UNIX`，daemon 会记录不含路径与 payload 的 listener 错误并以启动失败退出；应修正该会话的 runtime 目录。
+
 ## 4. CI 与 Release 流程
 
 ```text

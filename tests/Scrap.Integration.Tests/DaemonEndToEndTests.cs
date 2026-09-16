@@ -29,6 +29,30 @@ public sealed class DaemonEndToEndTests
     private static readonly string[] FirstPageKeys = ["A", "a", "api"];
 
     /// <summary>
+    /// 主密钥 provider 失效只会禁用业务操作，不会杀死 daemon 的控制面。
+    /// / A failed master-key provider disables business operations without killing the daemon control plane.
+    /// </summary>
+    [Fact]
+    public async Task MasterKeyProviderFailureKeepsControlPlaneAliveUntilExplicitShutdownAsync()
+    {
+        await using DaemonTestContext context = await DaemonTestContext.StartAsync(AlwaysFailingMasterKeyProvider.Instance);
+
+        _ = await context.Client.PingAsync();
+        DaemonVersionResult version = await context.Client.GetDaemonVersionAsync();
+        Assert.InRange(
+            ProtocolConstants.CurrentVersion,
+            version.MinProtocolVersion,
+            version.MaxProtocolVersion);
+
+        RemoteProtocolException unavailable = await Assert.ThrowsAsync<RemoteProtocolException>(
+            () => context.Client.ListScopesAsync());
+        Assert.Equal(ProtocolErrorCodes.KeyUnavailable, unavailable.ErrorCode);
+        Assert.False(context.HasStopped, "The host exited after a recoverable master-key provider failure.");
+
+        await context.ShutdownAsync();
+    }
+
+    /// <summary>
     /// Unicode CRUD、三种搜索、keyset 分页及两级 rename 均穿过真实 IPC，并保持密文身份绑定。
     /// / Unicode CRUD, all three search modes, keyset pagination, and both rename levels cross real IPC while preserving
     /// ciphertext identity binding.
@@ -254,20 +278,22 @@ public sealed class DaemonEndToEndTests
     private sealed record CiphertextSnapshot(byte[] Ciphertext, byte[] Nonce);
 
     /// <summary>
-    /// 拥有一个隔离 profile、真实 host/client 连接和内存密钥边界。
-    /// / Owns an isolated profile, real host/client connection, and in-memory key boundary.
+    /// 拥有一个隔离 profile、真实 host/client 连接和可注入密钥边界。
+    /// / Owns an isolated profile, real host/client connection, and injectable key boundary.
     /// </summary>
     private sealed class DaemonTestContext : IAsyncDisposable
     {
         private readonly IHost host;
         private readonly DaemonInstanceLease lease;
+        private readonly IMasterKeyProvider keyProvider;
         private readonly string rootDirectory;
+        private readonly Task shutdownObservation;
         private int shutdownCompleted;
 
         private DaemonTestContext(
             string rootDirectory,
             ScrapPathLayout paths,
-            MemoryMasterKeyProvider keyProvider,
+            IMasterKeyProvider keyProvider,
             DaemonInstanceLease lease,
             IHost host,
             ScrapClient client)
@@ -275,8 +301,9 @@ public sealed class DaemonEndToEndTests
             this.rootDirectory = rootDirectory;
             this.host = host;
             this.lease = lease;
+            this.keyProvider = keyProvider;
+            shutdownObservation = host.WaitForShutdownAsync();
             Paths = paths;
-            KeyProvider = keyProvider;
             Client = client;
         }
 
@@ -284,23 +311,26 @@ public sealed class DaemonEndToEndTests
         public ScrapPathLayout Paths { get; }
 
         /// <summary>内存 master-key provider。 / In-memory master-key provider.</summary>
-        public MemoryMasterKeyProvider KeyProvider { get; }
+        public MemoryMasterKeyProvider KeyProvider => (MemoryMasterKeyProvider)keyProvider;
 
         /// <summary>已完成版本协商的真实 client。 / Real client with completed version negotiation.</summary>
         public ScrapClient Client { get; }
+
+        /// <summary>host 是否已停止。 / Whether the host has stopped.</summary>
+        public bool HasStopped => shutdownObservation.IsCompleted;
 
         /// <summary>
         /// 在短临时路径启动 host 并连接相同 named-pipe endpoint。
         /// / Starts a host under a short temporary path and connects to the same named-pipe endpoint.
         /// </summary>
-        public static async Task<DaemonTestContext> StartAsync()
+        public static async Task<DaemonTestContext> StartAsync(IMasterKeyProvider? keyProvider = null)
         {
             // macOS 常把 Path.GetTempPath() 展开到 /var/folders 下；/tmp 可使 UDS 路径低于字节上限。
             // macOS often expands Path.GetTempPath() below /var/folders; /tmp keeps the UDS path below its byte limit.
             string tempRoot = OperatingSystem.IsWindows() ? Path.GetTempPath() : "/tmp";
             string root = Path.Combine(tempRoot, $"scrap-e2e-{Guid.NewGuid():N}");
             var paths = new ScrapPathLayout(root);
-            var keyProvider = new MemoryMasterKeyProvider();
+            keyProvider ??= new MemoryMasterKeyProvider();
             DaemonInstanceLease? lease = null;
             IHost? host = null;
             ScrapClient? client = null;
@@ -356,7 +386,7 @@ public sealed class DaemonEndToEndTests
         {
             await Client.ShutdownAsync();
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            await host.WaitForShutdownAsync(timeout.Token);
+            await shutdownObservation.WaitAsync(timeout.Token);
             Volatile.Write(ref shutdownCompleted, 1);
         }
 
@@ -453,5 +483,27 @@ public sealed class DaemonEndToEndTests
             StoreCount++;
             return ValueTask.CompletedTask;
         }
+    }
+
+    /// <summary>
+    /// 对所有操作都报告平台密钥不可用的确定性 provider。
+    /// / Deterministic provider that reports platform-key unavailability for every operation.
+    /// </summary>
+    private sealed class AlwaysFailingMasterKeyProvider : IMasterKeyProvider
+    {
+        /// <summary>共享无状态实例。 / Shared stateless instance.</summary>
+        public static AlwaysFailingMasterKeyProvider Instance { get; } = new();
+
+        /// <inheritdoc />
+        public ValueTask<byte[]?> LoadAsync(CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<byte[]?>(CreateException("load"));
+
+        /// <inheritdoc />
+        public ValueTask StoreAsync(ReadOnlyMemory<byte> value, CancellationToken cancellationToken = default) =>
+            ValueTask.FromException(CreateException("store"));
+
+        /// <summary>创建不包含敏感材料的稳定测试异常。 / Creates a stable test exception without sensitive material.</summary>
+        private static MasterKeyProviderException CreateException(string operation) =>
+            new("integration-test", operation, "The integration-test master-key provider is unavailable.");
     }
 }
