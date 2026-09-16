@@ -402,7 +402,7 @@ Scrap 使用独立于 MoeSegFault 品牌字标的产品图标。当前 master ra
 不使用 HTTP、REST 或 gRPC。IPC 使用 .NET Named Pipe API：
 
 - Windows 使用 named pipe，并将访问控制限制为当前用户 SID；
-- Unix-like 平台由 .NET 映射到 Unix domain socket，socket 位于 `~/.scrap/run/`，目录权限为 `0700`，socket 不允许其他用户访问。
+- Unix-like 平台由 .NET 映射到 Unix domain socket。socket 位于 `$XDG_RUNTIME_DIR/scrap/`；变量缺失或不是绝对路径时，回退到 `/tmp` 下按稳定用户标识隔离的私有目录。应用目录权限为 `0700`，socket 不允许其他用户访问。持久 profile 不承载 socket，因此 HOME 位于 NFS、DrvFS 等不支持 `AF_UNIX` 的文件系统时，控制面仍可启动。
 
 IPC endpoint 包含当前用户身份或 profile 标识，避免多用户会话误连。
 
