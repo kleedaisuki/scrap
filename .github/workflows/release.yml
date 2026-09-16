@@ -166,6 +166,79 @@ jobs:
           }
           & "$root/scrap$suffix" --help
           if ($LASTEXITCODE -ne 0) { throw "CLI smoke test failed." }
+      - name: Smoke-test Linux degraded Secret Service lifecycle
+        if: matrix.rid == 'linux-x64'
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $payload = "$PWD/smoke/scrap-v${{ needs.metadata.outputs.version }}-${{ matrix.rid }}/payload"
+          $cli = Join-Path $payload "scrap"
+          $daemonPath = Join-Path $payload "scrapd"
+          $profileRoot = Join-Path $env:RUNNER_TEMP "secret-service-smoke-$([Guid]::NewGuid().ToString('N'))"
+          $isolatedHome = Join-Path $profileRoot "home"
+          $runtimeDirectory = Join-Path $profileRoot "runtime"
+          $scopeStdout = Join-Path $profileRoot "scope.stdout"
+          $scopeStderr = Join-Path $profileRoot "scope.stderr"
+          $daemonStdout = Join-Path $profileRoot "daemon.stdout"
+          $daemonStderr = Join-Path $profileRoot "daemon.stderr"
+          $originalHome = $env:HOME
+          $originalRuntimeDirectory = $env:XDG_RUNTIME_DIR
+          $originalBusAddress = $env:DBUS_SESSION_BUS_ADDRESS
+          $daemon = $null
+          $environmentIsolated = $false
+
+          try {
+            New-Item -ItemType Directory -Path $isolatedHome, $runtimeDirectory -Force | Out-Null
+            & chmod 700 $isolatedHome $runtimeDirectory
+            if ($LASTEXITCODE -ne 0) { throw "Could not secure the isolated Linux smoke directories." }
+            $env:HOME = $isolatedHome
+            $env:XDG_RUNTIME_DIR = $runtimeDirectory
+            # 指定一个确定不存在的 socket，避免 runner 的桌面会话掩盖 Secret Service 降级路径。
+            # Name a guaranteed-absent socket so a runner desktop session cannot mask the degraded Secret Service path.
+            $env:DBUS_SESSION_BUS_ADDRESS = "unix:path=$(Join-Path $runtimeDirectory 'unreachable-session-bus')"
+            $environmentIsolated = $true
+
+            $daemon = Start-Process -FilePath $daemonPath -WorkingDirectory $payload -PassThru `
+              -RedirectStandardOutput $daemonStdout -RedirectStandardError $daemonStderr
+
+            & $cli daemon version
+            if ($LASTEXITCODE -ne 0) { throw "daemon version must remain available without Secret Service." }
+            if ($daemon.HasExited) { throw "The explicitly started degraded daemon exited before serving version." }
+            & $cli daemon ping
+            if ($LASTEXITCODE -ne 0) { throw "daemon ping must remain available without Secret Service." }
+
+            & $cli scope list --json 1> $scopeStdout 2> $scopeStderr
+            $scopeExitCode = $LASTEXITCODE
+            $standardOutput = Get-Content -LiteralPath $scopeStdout -Raw
+            $safeError = Get-Content -LiteralPath $scopeStderr -Raw
+            if ($null -eq $standardOutput) { $standardOutput = "" } else { $standardOutput = $standardOutput.Trim() }
+            if ($null -eq $safeError) { $safeError = "" } else { $safeError = $safeError.Trim() }
+            if ($scopeExitCode -ne 6) { throw "scope list returned $scopeExitCode instead of the stable store exit code 6." }
+            if (-not [string]::IsNullOrWhiteSpace($standardOutput)) { throw "Failed scope list unexpectedly wrote JSON output." }
+            if ($safeError -ne "scrap: The OS-protected master key is unavailable.") {
+              throw "scope list did not emit the stable sanitized key-provider error."
+            }
+
+            & $cli daemon shutdown --if-running
+            if ($LASTEXITCODE -ne 0) { throw "daemon shutdown --if-running failed in degraded mode." }
+            if (-not $daemon.WaitForExit(5000)) { throw "Degraded daemon did not exit after shutdown." }
+          }
+          finally {
+            # 无论断言是否失败，都先走公开 shutdown 契约，再强制回收本步骤拥有的进程与 profile。
+            # Regardless of assertion failures, try the public shutdown contract before reclaiming this step's process and profile.
+            if ($environmentIsolated) { & $cli daemon shutdown --if-running *> $null }
+            if ($null -ne $daemon -and -not $daemon.HasExited) {
+              Stop-Process -Id $daemon.Id -Force -ErrorAction SilentlyContinue
+              $daemon.WaitForExit(5000) | Out-Null
+            }
+            if ($null -ne $daemon) { $daemon.Dispose() }
+            $env:HOME = $originalHome
+            $env:XDG_RUNTIME_DIR = $originalRuntimeDirectory
+            $env:DBUS_SESSION_BUS_ADDRESS = $originalBusAddress
+            if (Test-Path -LiteralPath $profileRoot) {
+              Remove-Item -LiteralPath $profileRoot -Recurse -Force -ErrorAction Stop
+            }
+          }
       - name: Smoke-test Windows cold-start pipe EOF
         if: runner.os == 'Windows'
         shell: pwsh
