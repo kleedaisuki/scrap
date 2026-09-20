@@ -21,27 +21,16 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       is_prerelease: ${{ steps.version.outputs.is_prerelease }}
     steps:
-      - name: Derive version and release channel
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Validate version and derive release channel
         id: version
         shell: pwsh
         run: |
           $tag = "${{ github.ref_name }}"
-          if (-not $tag.StartsWith("v", [StringComparison]::Ordinal)) { throw "Release tag must start with v." }
-          $version = $tag.Substring(1)
-          $semVerPattern = '^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?<prerelease>(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$'
-          if ($version -notmatch $semVerPattern) {
-            throw "Release tag must contain a SemVer version."
-          }
-          $isPrerelease = $Matches.ContainsKey("prerelease")
-          # 覆盖合法 pre+build 及典型非法版本，避免发布通道或 parser 回归。Cover valid pre+build and common invalid forms.
-          foreach ($valid in @("1.2.3", "1.2.3-beta+build.7")) {
-            if ($valid -notmatch $semVerPattern) { throw "SemVer validation invariant failed for $valid." }
-          }
-          foreach ($invalid in @("01.2.3", "1.2.3-..", "1.2.3-01")) {
-            if ($invalid -match $semVerPattern) { throw "SemVer validation accepted invalid value $invalid." }
-          }
-          "version=$version" >> $env:GITHUB_OUTPUT
-          "is_prerelease=$($isPrerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          $state = ./build/validate-release-version.ps1 -Tag $tag -PassThru
+          "version=$($state.Version)" >> $env:GITHUB_OUTPUT
+          "is_prerelease=$($state.IsPrerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
   test:
     name: Test / ${{ matrix.os }}
@@ -346,7 +335,8 @@ jobs:
           $installLog = Join-Path $logDirectory "install.log"
           $uninstallLog = Join-Path $logDirectory "uninstall.log"
           $installDirectory = Join-Path $env:LOCALAPPDATA "Scrap"
-          $shortcut = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Scrap\Scrap.lnk"
+          $startMenuShortcut = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Scrap\Scrap.lnk"
+          $desktopShortcut = Join-Path ([Environment]::GetFolderPath("DesktopDirectory")) "Scrap.lnk"
           $dataDirectory = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".scrap"
           $sentinel = Join-Path $dataDirectory "msi-data-must-survive"
           $originalUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
@@ -384,7 +374,8 @@ jobs:
                 throw "MSI did not install $program."
               }
             }
-            if (-not (Test-Path -LiteralPath $shortcut -PathType Leaf)) { throw "MSI did not create the Start menu shortcut." }
+            if (-not (Test-Path -LiteralPath $startMenuShortcut -PathType Leaf)) { throw "MSI did not create the Start menu shortcut." }
+            if (-not (Test-Path -LiteralPath $desktopShortcut -PathType Leaf)) { throw "MSI did not create the Desktop shortcut." }
             $installedUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
             $installedPathEntries = @($installedUserPath -split ';' | ForEach-Object { $_.TrimEnd('\') })
             if ($installDirectory.TrimEnd('\') -notin $installedPathEntries) { throw "MSI did not add its install directory to the user PATH." }
@@ -402,7 +393,8 @@ jobs:
           }
 
           if (Test-Path -LiteralPath $installDirectory) { throw "MSI uninstall left the install directory behind." }
-          if (Test-Path -LiteralPath $shortcut) { throw "MSI uninstall left the Start menu shortcut behind." }
+          if (Test-Path -LiteralPath $startMenuShortcut) { throw "MSI uninstall left the Start menu shortcut behind." }
+          if (Test-Path -LiteralPath $desktopShortcut) { throw "MSI uninstall left the Desktop shortcut behind." }
           $restoredUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
           if ($null -eq $restoredUserPath) { $restoredUserPath = "" }
           $originalPathEntries = @(Get-NormalizedPathEntries $originalUserPath)

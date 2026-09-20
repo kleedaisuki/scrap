@@ -39,6 +39,10 @@ jobs:
       - name: Install site dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Validate checked-in release versions
+        shell: pwsh
+        run: ./build/validate-release-version.ps1
+
       - name: Check site
         run: pnpm --dir website check
 
@@ -135,6 +139,25 @@ jobs:
           $windowsInstaller = New-Object -ComObject WindowsInstaller.Installer
           $database = $windowsInstaller.OpenDatabase($msi, 0)
           if ($null -eq $database) { throw "Windows Installer could not open the CI MSI." }
+
+          # 同时检查两个用户入口的 MSI 表契约；真实安装/卸载仍由 release workflow 覆盖。
+          # Inspect both user-entry contracts in MSI tables; the release workflow still covers real install/uninstall.
+          $view = $database.OpenView("SELECT `Shortcut`, `Directory_`, `Target` FROM `Shortcut`")
+          $view.Execute()
+          $shortcuts = @{}
+          while ($record = $view.Fetch()) {
+            $shortcuts[$record.StringData(1)] = @($record.StringData(2), $record.StringData(3))
+          }
+          $view.Close()
+          foreach ($expected in @(
+            @{ Id = "ScrapGuiShortcut"; Directory = "ApplicationProgramsFolder" },
+            @{ Id = "ScrapDesktopShortcut"; Directory = "DesktopFolder" }
+          )) {
+            if (-not $shortcuts.ContainsKey($expected.Id)) { throw "MSI is missing shortcut $($expected.Id)." }
+            if ($shortcuts[$expected.Id][0] -cne $expected.Directory -or $shortcuts[$expected.Id][1] -cne "[INSTALLFOLDER]scrap-gui.exe") {
+              throw "MSI shortcut $($expected.Id) has an unexpected directory or target."
+            }
+          }
 
       - name: Parse POSIX release scripts
         if: runner.os != 'Windows'

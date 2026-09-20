@@ -13,7 +13,7 @@
   <Identity
     Name="Store.Identity.Placeholder"
     Publisher="CN=Store Package Placeholder"
-    Version="1.0.1.0"
+    Version="1.0.3.0"
     ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>Scrap CI Package</DisplayName>

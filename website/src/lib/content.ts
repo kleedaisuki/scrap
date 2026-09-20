@@ -14,6 +14,13 @@ export interface SiteCopy {
     secondary: string;
     availability: string;
   };
+  release: {
+    version: string;
+    kicker: string;
+    title: string;
+    body: string;
+    highlights: Array<{ title: string; body: string }>;
+  };
   showcase: {
     scopeAlt: string;
     scopeCaption: string;
@@ -38,7 +45,6 @@ export interface SiteCopy {
     body: string;
     platforms: Array<{ name: string; detail: string; action: string }>;
     footnote: string;
-    signingPolicy: string;
   };
   footer: { line: string; license: string; privacy: string; support: string };
 }
@@ -52,12 +58,24 @@ export const copy: Record<Locale, SiteCopy> = {
     nav: { features: "为什么是 scrap", design: "如何运作", download: "下载", github: "GitHub" },
     theme: { label: "切换外观", system: "跟随系统", light: "浅色", dark: "深色" },
     hero: {
-      eyebrow: "LOCAL-FIRST · GUI + CLI",
+      eyebrow: "v0.3.0 · LOCAL-FIRST · GUI + CLI",
       title: "把零散的秘密，收好，也随手可取。",
       lead: "scrap 在你的电脑上保存令牌、密码与短文本。用图形界面快速检索和复制，用 CLI 接进脚本；值经过加密，不送往云端。",
       primary: "下载 Windows 版",
       secondary: "查看其他平台",
       availability: "Windows · macOS · Linux",
+    },
+    release: {
+      version: "v0.3.0",
+      kicker: "现在，一个 Record 可以装下完整的一组值",
+      title: "少切换，少噪声，手不离键盘。",
+      body: "v0.3.0 把日常操作收拢成更直接的路径：同一条记录可以保存多个有序 value，搜索模式各司其职，常用弹窗也能用键盘完成。",
+      highlights: [
+        { title: "多个 value，顺序保留", body: "把属于同一凭据或环境的一组值放进一个 Record；添加、查看和复制时保持原有顺序。" },
+        { title: "精确就是精确", body: "精确搜索与正则匹配只留下真正命中的 Record；需要探索相近结果时，再切到模糊搜索。" },
+        { title: "Enter / Esc 快速往返", body: "用 Enter 确认当前操作，用 Esc 退出弹窗或返回；创建后可以直接继续搜索。" },
+        { title: "Windows 安装即用", body: "正常运行 MSI 后，桌面和开始菜单都有 Scrap 快捷方式，CLI 与守护进程也一并安装。" },
+      ],
     },
     showcase: {
       scopeAlt: "scrap 桌面端正在两个 scope 中检索，staging 与 production 已选中",
@@ -99,8 +117,7 @@ export const copy: Record<Locale, SiteCopy> = {
         { name: "macOS", detail: "Apple Silicon / Intel", action: "查看 macOS 资产" },
         { name: "Linux", detail: "x64 · tar.gz", action: "查看 Linux 资产" },
       ],
-      footnote: "所有下载均由 GitHub Releases 提供，并附版本说明、SHA-256 校验和与签名状态。未签名版本可能触发 Windows SmartScreen 提示。",
-      signingPolicy: "Code signing policy",
+      footnote: "所有下载均由 GitHub Releases 提供，并附版本说明与 SHA-256 校验和。Windows 用户可直接选择 MSI 完成常规安装。",
     },
     footer: { line: "在本机，安静地保存重要的值。", license: "GPL-3.0 开源软件", privacy: "隐私政策", support: "支持" },
   },
@@ -112,12 +129,24 @@ export const copy: Record<Locale, SiteCopy> = {
     nav: { features: "Why scrap", design: "How it works", download: "Download", github: "GitHub" },
     theme: { label: "Change appearance", system: "System", light: "Light", dark: "Dark" },
     hero: {
-      eyebrow: "LOCAL-FIRST · GUI + CLI",
+      eyebrow: "v0.3.0 · LOCAL-FIRST · GUI + CLI",
       title: "Keep small secrets close—and find them fast.",
       lead: "scrap keeps tokens, passwords, and short text on your computer. Find and copy them in the desktop app, or compose them into scripts with the CLI—encrypted at rest, without a cloud account.",
       primary: "Download for Windows",
       secondary: "Other platforms",
       availability: "Windows · macOS · Linux",
+    },
+    release: {
+      version: "v0.3.0",
+      kicker: "One record can now hold a complete set of values",
+      title: "Fewer detours. Less noise. Hands on the keyboard.",
+      body: "v0.3.0 makes everyday work more direct: keep multiple ordered values in one record, let each search mode do one clear job, and finish common dialogs from the keyboard.",
+      highlights: [
+        { title: "Multiple values, order preserved", body: "Keep a related credential or environment set in one record. Values retain their order when you add, review, and copy them." },
+        { title: "Exact means exact", body: "Exact and regex search show only records that actually match. Switch to fuzzy search when you want nearby discoveries." },
+        { title: "Move fast with Enter / Esc", body: "Press Enter to confirm the current action and Esc to leave a dialog or step back. After creating a record, keep searching immediately." },
+        { title: "A normal Windows install", body: "Run the MSI to get Scrap shortcuts on both the Desktop and Start menu, with the CLI and daemon installed alongside the app." },
+      ],
     },
     showcase: {
       scopeAlt: "The scrap desktop app searching across the selected staging and production scopes",
@@ -159,8 +188,7 @@ export const copy: Record<Locale, SiteCopy> = {
         { name: "macOS", detail: "Apple Silicon / Intel", action: "View macOS assets" },
         { name: "Linux", detail: "x64 · tar.gz", action: "View Linux assets" },
       ],
-      footnote: "GitHub Releases provides every download with release notes, SHA-256 checksums, and signing status. Unsigned builds may trigger Windows SmartScreen.",
-      signingPolicy: "Code signing policy",
+      footnote: "GitHub Releases provides every download with release notes and SHA-256 checksums. On Windows, choose the MSI for a standard install.",
     },
     footer: { line: "Keep the values that matter, quietly, on your machine.", license: "Open source under GPL-3.0", privacy: "Privacy", support: "Support" },
   },

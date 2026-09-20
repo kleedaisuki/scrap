@@ -9,7 +9,6 @@ interface Props {
 
 const { locale, copy } = Astro.props;
 const releaseUrl = "https://github.com/kleedaisuki/scrap/releases";
-const signingPolicyUrl = "https://github.com/kleedaisuki/scrap/blob/main/docs/code-signing-policy.md";
 const screenshotLocale = locale === "zh" ? "zh-CN" : "en-US";
 ---
 
@@ -44,6 +43,26 @@ const screenshotLocale = locale === "zh" ? "zh-CN" : "en-US";
     <span>GUI + CLI</span>
     <span>{locale === "zh" ? "开放源代码" : "Open source"}</span>
   </div>
+
+  <section class="release-focus section-shell" aria-labelledby="release-title">
+    <header class="release-heading">
+      <span class="release-version">{copy.release.version}</span>
+      <div>
+        <p class="section-kicker">{copy.release.kicker}</p>
+        <h2 id="release-title">{copy.release.title}</h2>
+        <p>{copy.release.body}</p>
+      </div>
+    </header>
+    <div class="release-grid">
+      {copy.release.highlights.map((highlight, index) => (
+        <article>
+          <span aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+          <h3>{highlight.title}</h3>
+          <p>{highlight.body}</p>
+        </article>
+      ))}
+    </div>
+  </section>
 
   <section class="showcase section-shell" aria-labelledby="showcase-title">
     <div class="showcase-copy">
@@ -119,8 +138,6 @@ const screenshotLocale = locale === "zh" ? "zh-CN" : "en-US";
         </a>
       ))}
     </div>
-    <p class="download-note">
-      {copy.download.footnote} <a href={signingPolicyUrl}>{copy.download.signingPolicy} <span aria-hidden="true">↗</span></a>
-    </p>
+    <p class="download-note">{copy.download.footnote}</p>
   </section>
 </BaseLayout>

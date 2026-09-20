@@ -32,6 +32,7 @@
     <StandardDirectory Id="ProgramMenuFolder">
       <Directory Id="ApplicationProgramsFolder" Name="Scrap" />
     </StandardDirectory>
+    <StandardDirectory Id="DesktopFolder" />
 
     <Feature Id="ProductFeature" Title="Scrap" Level="1">
       <ComponentGroupRef Id="ProductComponents" />
@@ -69,6 +70,13 @@
         <Shortcut Id="ScrapGuiShortcut" Name="Scrap" Description="Local encrypted record store / 本地加密记录库" Target="[INSTALLFOLDER]scrap-gui.exe" WorkingDirectory="INSTALLFOLDER" Icon="ScrapIcon" />
         <RemoveFolder Id="RemoveApplicationProgramsFolder" Directory="ApplicationProgramsFolder" On="uninstall" />
         <RegistryValue Root="HKCU" Key="Software\MoeSegfault\Scrap" Name="StartMenuShortcut" Value="1" Type="integer" KeyPath="yes" />
+      </Component>
+
+      <!-- 桌面快捷方式拥有独立且稳定的组件与 HKCU key path，升级和卸载不会依赖开始菜单状态。
+           The Desktop shortcut owns a stable component and HKCU key path, independent of Start menu state during upgrades and uninstall. -->
+      <Component Id="DesktopShortcutComponent" Directory="DesktopFolder" Guid="{77F76B2D-71E8-49D8-94D5-A4419895DA61}">
+        <Shortcut Id="ScrapDesktopShortcut" Name="Scrap" Description="Local encrypted record store / 本地加密记录库" Target="[INSTALLFOLDER]scrap-gui.exe" WorkingDirectory="INSTALLFOLDER" Icon="ScrapIcon" />
+        <RegistryValue Root="HKCU" Key="Software\MoeSegfault\Scrap" Name="DesktopShortcut" Value="1" Type="integer" KeyPath="yes" />
       </Component>
     </ComponentGroup>
   </Fragment>

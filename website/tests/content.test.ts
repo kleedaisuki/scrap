@@ -27,6 +27,23 @@ describe("localized product copy", () => {
       expect(locale.showcase.createCaption).toBeTruthy();
     }
   });
+
+  it("keeps the v0.3 product outcomes prominent and equivalent", () => {
+    expect(copy.zh.release.version).toBe("v0.3.0");
+    expect(copy.en.release.version).toBe(copy.zh.release.version);
+    expect(copy.zh.release.highlights).toHaveLength(4);
+    expect(copy.en.release.highlights).toHaveLength(copy.zh.release.highlights.length);
+
+    const english = JSON.stringify(copy.en.release);
+    for (const outcome of ["Multiple values", "order preserved", "Exact and regex", "fuzzy search", "Enter", "Esc", "Desktop", "Start menu", "MSI"]) {
+      expect(english).toContain(outcome);
+    }
+    const chinese = JSON.stringify(copy.zh.release);
+    for (const outcome of ["多个", "顺序", "精确", "正则", "模糊", "Enter", "Esc", "桌面", "开始菜单", "MSI"]) {
+      expect(chinese).toContain(outcome);
+    }
+  });
+
 });
 
 /** Guards the bilingual policy's structure and material disclosures. / 守护双语政策的结构与关键披露。 */

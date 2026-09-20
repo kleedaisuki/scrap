@@ -132,6 +132,16 @@
   .availability > span { width: .5rem; height: .5rem; border-radius: 50%; background: #4daf76; box-shadow: 0 0 0 .25rem color-mix(in srgb, #4daf76 17%, transparent); }
   .trust-strip { display: flex; flex-wrap: wrap; justify-content: center; gap: .75rem 2.25rem; width: min(calc(100% - 3rem), var(--moe-layout-content)); margin: -2rem auto 5rem; padding: 1.25rem; border-block: 1px solid var(--moe-color-border); color: var(--moe-color-text-soft); font-size: .78rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
   .trust-strip span::before { content: "✦"; margin-right: .55rem; color: var(--moe-color-accent-strong); }
+  .release-focus { padding: 1rem 0 7rem; }
+  .release-heading { display: grid; grid-template-columns: minmax(7rem, .22fr) minmax(0, 1fr); gap: clamp(1.5rem, 5vw, 4rem); align-items: start; }
+  .release-version { color: var(--moe-color-accent-strong); font-family: var(--moe-font-family-mono); font-size: clamp(1.5rem, 3vw, 2.3rem); font-weight: 900; line-height: 1; }
+  .release-heading h2 { max-width: 18ch; margin-top: .8rem; font-size: clamp(2.25rem, 4.5vw, 4rem); line-height: 1.06; }
+  .release-heading div > p:last-child { max-width: 50rem; margin-top: 1.25rem; color: var(--moe-color-text-soft); font-size: 1.05rem; }
+  .release-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; margin-top: 3rem; border: 1px solid var(--moe-color-border); border-radius: var(--moe-radius-lg); background: var(--moe-color-border); overflow: hidden; }
+  .release-grid article { min-height: 14rem; padding: clamp(1.4rem, 3vw, 2.2rem); background: var(--moe-color-surface); }
+  .release-grid article > span { color: var(--moe-color-accent-strong); font-family: var(--moe-font-family-mono); font-size: .72rem; font-weight: 800; }
+  .release-grid h3 { margin-top: 2.4rem; font-size: clamp(1.35rem, 2.3vw, 1.9rem); }
+  .release-grid p { margin-top: .8rem; color: var(--moe-color-text-soft); }
   .product-shot { position: relative; margin: 0; }
   /* Responsive width must override both HTML dimension hints; otherwise height stays at 768px and stretches the screenshot. / 响应式宽度必须同时覆盖 HTML 尺寸提示，否则高度会停留在 768px 并拉伸截图。 */
   .product-shot img { position: relative; width: 100%; height: auto; border: 1px solid color-mix(in srgb, var(--moe-color-border) 82%, transparent); border-radius: var(--moe-radius-md); background: var(--moe-color-surface-strong); box-shadow: 0 2.5rem 5rem color-mix(in srgb, var(--moe-color-accent-strong) 18%, transparent); }
@@ -245,6 +255,7 @@
     .hero-copy h1 { max-width: 14ch; }
     .hero-shot { width: min(100%, 44rem); justify-self: center; transform: rotate(.45deg); }
     .showcase { grid-template-columns: 1fr; }
+    .release-heading { grid-template-columns: 1fr; gap: 1rem; }
     .showcase-copy { max-width: 42rem; }
     .problem-band, .architecture-copy { grid-template-columns: 1fr; }
     .problem-band > p, .architecture-copy > p:last-child { margin-top: 2rem; }
@@ -270,6 +281,7 @@
     .showcase { padding-bottom: 4.5rem; }
     .problem-band { padding-inline: 1rem; }
     .feature-grid { grid-template-columns: 1fr; }
+    .release-grid { grid-template-columns: 1fr; }
     .feature-card { min-height: 17rem; }
     .download-section { width: calc(100% - 1rem); padding: 1.35rem; }
     .legal-page { width: calc(100% - 2rem); padding-top: 4rem; }
