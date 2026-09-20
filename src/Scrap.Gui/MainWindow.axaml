@@ -1,9 +1,9 @@
 <?xml version="1.0" ?>
-<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:vm="using:Scrap.Gui.ViewModels" xmlns:models="using:Scrap.Gui.Models" x:Class="Scrap.Gui.MainWindow" x:DataType="vm:MainWindowViewModel" mc:Ignorable="d" Width="1180" Height="760" MinWidth="1180" MinHeight="720" Icon="avares://Scrap.Gui/Assets/scrap.png" Title="{Binding L.WindowTitle}">
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:vm="using:Scrap.Gui.ViewModels" xmlns:models="using:Scrap.Gui.Models" x:Class="Scrap.Gui.MainWindow" x:DataType="vm:MainWindowViewModel" mc:Ignorable="d" Width="1180" Height="760" MinWidth="940" MinHeight="620" Icon="avares://Scrap.Gui/Assets/scrap.png" Title="{Binding L.WindowTitle}">
   <Grid RowDefinitions="Auto,Auto,*">
-    <Border Grid.Row="0" IsEnabled="{Binding IsWorkspaceEnabled}" Background="{DynamicResource RaisedBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="24,14">
-      <Grid ColumnDefinitions="Auto,24,*,Auto" VerticalAlignment="Center">
-        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+    <Border Grid.Row="0" IsEnabled="{Binding IsWorkspaceEnabled}" Background="{DynamicResource RaisedBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="24,10">
+      <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto" RowSpacing="8">
+        <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
           <Border Width="38" Height="38" CornerRadius="10" Background="{DynamicResource AccentBrush}">
             <TextBlock Text="S" Foreground="{DynamicResource OnAccentBrush}" FontFamily="Georgia" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
           </Border>
@@ -12,7 +12,7 @@
             <TextBlock Text="{Binding L.Tagline}" Classes="muted" FontSize="11"/>
           </StackPanel>
         </StackPanel>
-        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
           <TextBlock Text="{Binding L.Scope}" Classes="accent" VerticalAlignment="Center"/>
           <ComboBox Width="220" HorizontalContentAlignment="Stretch" ItemsSource="{Binding Scopes}" SelectedItem="{Binding SelectedScope}" PlaceholderText="{Binding L.ChooseScope}">
             <ComboBox.ItemTemplate>
@@ -25,12 +25,12 @@
             </ComboBox.ItemTemplate>
           </ComboBox>
           <TextBlock Text="{Binding ScopeStatus}" Classes="muted" VerticalAlignment="Center"/>
-        </StackPanel>
-        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="7">
           <Button Content="{Binding L.NewRecord}" Classes="primary" Command="{Binding OpenCreateRecordCommand}"/>
           <Button Content="{Binding L.NewScope}" Command="{Binding OpenCreateScopeCommand}"/>
           <Button Content="{Binding L.Rename}" Command="{Binding OpenRenameScopeCommand}"/>
           <Button Content="{Binding L.Delete}" Classes="danger" Command="{Binding OpenDeleteScopeCommand}"/>
+        </StackPanel>
+        <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="7">
           <ComboBox Width="106" ItemsSource="{Binding ThemeChoices}" SelectedItem="{Binding SelectedTheme}">
             <ComboBox.ItemTemplate>
               <DataTemplate x:CompileBindings="False">
@@ -214,8 +214,10 @@
       </Border>
     </Border>
     <Border Grid.RowSpan="3" IsVisible="{Binding IsRecordEditorOpen}" Background="{DynamicResource OverlayBrush}" ZIndex="20">
-      <Border Classes="panel" Width="630" MaxHeight="680" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24" KeyboardNavigation.TabNavigation="Cycle">
-        <StackPanel Spacing="13">
+      <Border Classes="panel" Width="630" MaxHeight="680" Margin="16" HorizontalAlignment="Center" VerticalAlignment="Stretch" Padding="24" KeyboardNavigation.TabNavigation="Cycle">
+        <Grid RowDefinitions="*,Auto" RowSpacing="13">
+          <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="13" Margin="0,0,8,0">
           <TextBlock Text="{Binding RecordEditorTitle}" Classes="heading" FontSize="20"/>
           <TextBlock Text="{Binding L.KeyLabel}" Classes="muted" FontSize="11"/>
           <TextBox x:Name="RecordKeyBox" Text="{Binding EditorKey}" IsReadOnly="{Binding IsEditorKeyReadOnly}" PlaceholderText="{Binding L.KeyPlaceholder}"/>
@@ -267,11 +269,13 @@
               <TextBlock Text="{Binding ErrorMessage}" Classes="muted" TextWrapping="Wrap"/>
             </StackPanel>
           </Border>
-          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            </StackPanel>
+          </ScrollViewer>
+          <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
             <Button Content="{Binding L.Cancel}" Command="{Binding CloseModalCommand}" IsCancel="True"/>
             <Button Content="{Binding L.SaveRecord}" Classes="primary" Command="{Binding SaveRecordCommand}" IsDefault="True" ToolTip.Tip="{Binding L.SaveRecordShortcutHint}"/>
           </StackPanel>
-        </StackPanel>
+        </Grid>
       </Border>
     </Border>
     <Border Grid.RowSpan="3" IsVisible="{Binding IsRecordDeleteOpen}" Background="{DynamicResource OverlayBrush}" ZIndex="20">

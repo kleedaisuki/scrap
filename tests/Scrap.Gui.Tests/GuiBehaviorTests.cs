@@ -61,14 +61,17 @@ public sealed class DesktopLayoutContractTests
     /// The minimum window must fit header commands and the complete record editor, never regressing to the proven-overlapping 940×620 size.
     /// </summary>
     [Fact]
-    public void MainWindowMinimumSizePreservesTheValidatedComposition()
+    public void MainWindowMinimumSizeUsesResponsiveHeaderAndScrollableEditor()
     {
         string repository = TestDirectory.FindRepositoryRoot(AppContext.BaseDirectory)
             ?? throw new DirectoryNotFoundException("Could not locate the repository root.");
         string xaml = File.ReadAllText(Path.Combine(repository, "src", "Scrap.Gui", "MainWindow.axaml"));
 
-        Assert.Contains("MinWidth=\"1180\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("MinHeight=\"720\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("MinWidth=\"940\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("MinHeight=\"620\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("RowDefinitions=\"Auto,Auto\" ColumnDefinitions=\"*,Auto\" RowSpacing=\"8\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("MaxHeight=\"680\" Margin=\"16\" HorizontalAlignment=\"Center\" VerticalAlignment=\"Stretch\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("<ScrollViewer Grid.Row=\"0\" VerticalScrollBarVisibility=\"Auto\">", xaml, StringComparison.Ordinal);
     }
 }
 
