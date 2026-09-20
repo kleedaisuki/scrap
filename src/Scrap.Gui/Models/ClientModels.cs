@@ -94,34 +94,135 @@ public sealed record RecordCandidate(string Scope, string Key, RecordPresentatio
 /// </summary>
 /// <param name="Scope">所属 scope。Owning scope.</param>
 /// <param name="Key">记录 key。Record key.</param>
-/// <param name="Value">UTF-8 文本值。UTF-8 text value.</param>
+/// <param name="Values">非空、有序的 UTF-8 文本值。Non-empty ordered UTF-8 text values.</param>
 /// <param name="Presentation">呈现策略。Presentation policy.</param>
 /// <param name="UpdatedAt">最近修改时间。Last modification time.</param>
 /// <param name="Revision">条件 mutation 使用的修订号。Revision used for conditional mutations.</param>
 public sealed record RecordDetails(
     string Scope,
     string Key,
-    string Value,
+    IReadOnlyList<string> Values,
     RecordPresentation Presentation,
     DateTimeOffset UpdatedAt,
-    long Revision);
+    long Revision)
+{
+    /// <summary>非空的值快照。Non-empty immutable value snapshot.</summary>
+    public IReadOnlyList<string> Values { get; init; } = Values.Count > 0
+        ? Values.ToArray()
+        : throw new ArgumentException("A record must contain at least one value.", nameof(Values));
+
+    /// <summary>从旧版单 value 构造记录。Constructs a record from a legacy single value.</summary>
+    public RecordDetails(
+        string scope,
+        string key,
+        string value,
+        RecordPresentation presentation,
+        DateTimeOffset updatedAt,
+        long revision)
+        : this(scope, key, [value], presentation, updatedAt, revision)
+    {
+    }
+
+    /// <summary>
+    /// 旧版单值访问器；新代码应遍历 <see cref="Values" />。
+    /// Legacy single-value accessor; new code should enumerate <see cref="Values" />.
+    /// </summary>
+    public string Value => Values[0];
+}
 
 /// <summary>
 /// 创建或完整替换一条记录的请求。Request to create or wholly replace a record.
 /// </summary>
 /// <param name="Scope">目标 scope。Target scope.</param>
 /// <param name="Key">新 key。New key.</param>
-/// <param name="Value">完整的新 value。Complete new value.</param>
+/// <param name="Values">完整、非空的新 value 集合。Complete non-empty replacement value collection.</param>
 /// <param name="Presentation">呈现策略。Presentation policy.</param>
 /// <param name="OriginalKey">编辑时的原 key；新建时为 null。Original key while editing; null while creating.</param>
 /// <param name="ExpectedRevision">编辑时的乐观并发修订号。Optimistic-concurrency revision while editing.</param>
 public sealed record SaveRecordRequest(
     string Scope,
     string Key,
-    string Value,
+    IReadOnlyList<string> Values,
     RecordPresentation Presentation,
     string? OriginalKey,
-    long? ExpectedRevision);
+    long? ExpectedRevision)
+{
+    /// <summary>要原子替换的非空值快照。Non-empty value snapshot to replace atomically.</summary>
+    public IReadOnlyList<string> Values { get; init; } = Values.Count > 0
+        ? Values.ToArray()
+        : throw new ArgumentException("A record must contain at least one value.", nameof(Values));
+
+    /// <summary>从旧版单 value 构造保存请求。Constructs a save request from a legacy single value.</summary>
+    public SaveRecordRequest(
+        string scope,
+        string key,
+        string value,
+        RecordPresentation presentation,
+        string? originalKey,
+        long? expectedRevision)
+        : this(scope, key, [value], presentation, originalKey, expectedRevision)
+    {
+    }
+
+    /// <summary>
+    /// 旧版单值访问器；协议边界应传输完整的有序集合。
+    /// Legacy single-value accessor; protocol boundaries should transmit the complete ordered collection.
+    /// </summary>
+    public string Value => Values[0];
+}
+
+/// <summary>
+/// 记录编辑器中的一个有序 value。An ordered value in the record editor.
+/// </summary>
+public sealed class RecordValueEditor : Infrastructure.ViewModelBase
+{
+    private string _value;
+    private int _position;
+
+    /// <summary>创建 value 编辑项。Creates a value editor item.</summary>
+    public RecordValueEditor(string value, int position = 1)
+    {
+        _value = value;
+        _position = position;
+    }
+
+    /// <summary>面向用户的一基位置。User-facing one-based position.</summary>
+    public int Position
+    {
+        get => _position;
+        private set
+        {
+            if (SetProperty(ref _position, value))
+            {
+                OnPropertyChanged(nameof(AccessibleName));
+            }
+        }
+    }
+
+    /// <summary>可编程的 value 名称。Programmatic value name.</summary>
+    public string AccessibleName => $"Value {Position}";
+
+    /// <summary>在集合变更后更新一基位置。Updates the one-based position after a collection change.</summary>
+    internal void SetPosition(int position) => Position = position;
+
+    /// <summary>完整的 UTF-8 文本。Complete UTF-8 text.</summary>
+    public string Value
+    {
+        get => _value;
+        set => SetProperty(ref _value, value);
+    }
+}
+
+/// <summary>
+/// 一个 value 的显示投影；原值仅作为显式复制命令参数。
+/// Display projection for one value; the raw value is used only by an explicit copy command.
+/// </summary>
+public sealed record RecordValueDisplay(
+    int Position,
+    string Text,
+    string RawValue,
+    bool IsMasked,
+    string RevealButtonText);
 
 /// <summary>
 /// GUI 可理解的 client 失败类别。Client failure categories understood by the GUI.

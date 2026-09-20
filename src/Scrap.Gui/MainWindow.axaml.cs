@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Scrap.Gui.Abstractions;
 using Scrap.Gui.Services;
 using Scrap.Gui.ViewModels;
@@ -69,7 +70,7 @@ public partial class MainWindow : Window
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         Loaded += OnLoaded;
         Closing += OnClosing;
-        KeyDown += OnKeyDown;
+        AddHandler(InputElement.KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
     }
 
     private MainWindowViewModel ViewModel => (MainWindowViewModel)DataContext!;
@@ -130,7 +131,8 @@ public partial class MainWindow : Window
 
     private void OnKeyDown(object? sender, KeyEventArgs eventArgs)
     {
-        bool control = eventArgs.KeyModifiers.HasFlag(KeyModifiers.Control);
+        bool primaryModifier = eventArgs.KeyModifiers.HasFlag(KeyModifiers.Control) ||
+            eventArgs.KeyModifiers.HasFlag(KeyModifiers.Meta);
         IInputElement? focused = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement();
         bool editingText = focused is TextBox;
 
@@ -139,22 +141,29 @@ public partial class MainWindow : Window
             if (ViewModel.HasOpenModal)
             {
                 Execute(ViewModel.CloseModalCommand);
+                eventArgs.Handled = true;
             }
             else if (ViewModel.IsRevealed)
             {
                 Execute(ViewModel.ToggleRevealCommand);
+                eventArgs.Handled = true;
             }
 
-            eventArgs.Handled = true;
             return;
         }
 
         if (ViewModel.HasOpenModal)
         {
+            if (eventArgs.Key == Key.Enter && primaryModifier && ViewModel.IsRecordEditorOpen)
+            {
+                Execute(ViewModel.SaveRecordCommand);
+                eventArgs.Handled = true;
+            }
+
             return;
         }
 
-        if (control && eventArgs.Key == Key.K)
+        if (primaryModifier && eventArgs.Key == Key.K)
         {
             FocusSearch();
             eventArgs.Handled = true;
@@ -168,14 +177,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (control && eventArgs.Key == Key.C && !editingText)
+        if (primaryModifier && eventArgs.Key == Key.C && !editingText)
         {
             Execute(ViewModel.CopyCommand);
             eventArgs.Handled = true;
             return;
         }
 
-        if (control && eventArgs.Key == Key.N)
+        if (primaryModifier && eventArgs.Key == Key.N)
         {
             Execute(ViewModel.OpenCreateRecordCommand);
             eventArgs.Handled = true;
@@ -208,18 +217,41 @@ public partial class MainWindow : Window
         }
         else if (eventArgs.PropertyName == nameof(MainWindowViewModel.IsScopeDeleteOpen) && ViewModel.IsScopeDeleteOpen)
         {
-            Dispatcher.UIThread.Post(() => ScopeDeleteConfirmButton.Focus());
+            Dispatcher.UIThread.Post(() => ScopeDeleteCancelButton.Focus());
         }
         else if (eventArgs.PropertyName == nameof(MainWindowViewModel.IsRecordEditorOpen) && ViewModel.IsRecordEditorOpen)
         {
-            Dispatcher.UIThread.Post(() => FocusAndSelect(ViewModel.IsEditorKeyReadOnly ? RecordValueBox : RecordKeyBox));
+            Dispatcher.UIThread.Post(() =>
+            {
+                TextBox target = ViewModel.IsEditorKeyReadOnly
+                    ? RecordValuesHost.GetVisualDescendants().OfType<TextBox>().FirstOrDefault() ?? RecordKeyBox
+                    : RecordKeyBox;
+                FocusAndSelect(target);
+            });
         }
         else if (eventArgs.PropertyName == nameof(MainWindowViewModel.IsRecordDeleteOpen) && ViewModel.IsRecordDeleteOpen)
         {
-            Dispatcher.UIThread.Post(() => RecordDeleteConfirmButton.Focus());
+            Dispatcher.UIThread.Post(() => RecordDeleteCancelButton.Focus());
         }
-        else if (eventArgs.PropertyName == nameof(MainWindowViewModel.HasOpenModal) && !ViewModel.HasOpenModal)
+        else if (eventArgs.PropertyName == nameof(MainWindowViewModel.RequestedEditorValueFocus) &&
+                 ViewModel.RequestedEditorValueFocus is { } requested)
         {
+            Dispatcher.UIThread.Post(() =>
+            {
+                int index = ViewModel.EditorValues.IndexOf(requested);
+                TextBox? editor = index < 0
+                    ? null
+                    : RecordValuesHost.GetVisualDescendants().OfType<TextBox>().ElementAtOrDefault(index);
+                if (editor is not null)
+                {
+                    FocusAndSelect(editor);
+                    editor.BringIntoView();
+                }
+            });
+        }
+        else if (eventArgs.PropertyName == nameof(MainWindowViewModel.IsWorkspaceEnabled) && ViewModel.IsWorkspaceEnabled)
+        {
+            // Mutations close their modal before IsBusy clears. Wait for the workspace to become focusable.
             Dispatcher.UIThread.Post(FocusSearch);
         }
     }

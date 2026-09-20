@@ -27,6 +27,7 @@
           <TextBlock Text="{Binding ScopeStatus}" Classes="muted" VerticalAlignment="Center"/>
         </StackPanel>
         <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="7">
+          <Button Content="{Binding L.NewRecord}" Classes="primary" Command="{Binding OpenCreateRecordCommand}"/>
           <Button Content="{Binding L.NewScope}" Command="{Binding OpenCreateScopeCommand}"/>
           <Button Content="{Binding L.Rename}" Command="{Binding OpenRenameScopeCommand}"/>
           <Button Content="{Binding L.Delete}" Classes="danger" Command="{Binding OpenDeleteScopeCommand}"/>
@@ -104,12 +105,11 @@
     <Grid Grid.Row="2" IsEnabled="{Binding IsWorkspaceEnabled}" Margin="24,0,24,24" ColumnDefinitions="370,14,*">
       <Border Grid.Column="0" Classes="panel" Padding="10">
         <Grid RowDefinitions="Auto,*">
-          <Grid Margin="8,4,8,10" ColumnDefinitions="*,Auto">
+          <Grid Margin="8,4,8,10">
             <StackPanel>
               <TextBlock Text="{Binding L.Candidates}" Classes="accent" FontSize="12"/>
               <TextBlock Text="{Binding L.CandidatesHint}" Classes="muted" FontSize="11"/>
             </StackPanel>
-            <Button Grid.Column="1" Content="{Binding L.NewRecord}" Classes="primary" Command="{Binding OpenCreateRecordCommand}"/>
           </Grid>
           <Grid Grid.Row="1">
             <ListBox x:Name="CandidateList" ItemsSource="{Binding Candidates}" SelectedItem="{Binding SelectedCandidate}">
@@ -160,13 +160,23 @@
             <TextBlock Grid.Row="1" Text="{Binding L.Value}" Classes="muted" FontSize="11" Margin="0,28,0,8"/>
             <Border Grid.Row="2" Background="{DynamicResource RaisedBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="16">
               <ScrollViewer>
-                <TextBlock Text="{Binding DisplayValue}" FontFamily="IBM Plex Mono,Cascadia Mono,Consolas,monospace" FontSize="15" TextWrapping="Wrap"/>
+                <ItemsControl ItemsSource="{Binding DisplayValues}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="models:RecordValueDisplay">
+                      <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,0,0,12">
+                        <TextBlock Text="{Binding Position}" Classes="muted" FontSize="11" Margin="0,3,12,0"/>
+                        <TextBlock Grid.Column="1" Text="{Binding Text}" FontFamily="IBM Plex Mono,Cascadia Mono,Consolas,monospace" FontSize="15" TextWrapping="Wrap"/>
+                        <Button Grid.Column="2" Content="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).L.Copy}" Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).CopyValueCommand}" CommandParameter="{Binding}" Margin="12,0,0,0"/>
+                        <Button Grid.Column="3" Content="{Binding RevealButtonText}" IsVisible="{Binding IsMasked}" Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ToggleRevealValueCommand}" CommandParameter="{Binding}" Margin="8,0,0,0"/>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
               </ScrollViewer>
             </Border>
             <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,18,0,0">
               <StackPanel Orientation="Horizontal" Spacing="8">
                 <Button Content="{Binding L.Copy}" Classes="primary" Command="{Binding CopyCommand}"/>
-                <Button Content="{Binding RevealButtonText}" IsVisible="{Binding SelectedIsMasked}" Command="{Binding ToggleRevealCommand}"/>
               </StackPanel>
               <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
                 <Button Content="{Binding L.Edit}" Command="{Binding OpenEditRecordCommand}"/>
@@ -184,8 +194,8 @@
           <TextBlock Text="{Binding L.ScopeNameHint}" Classes="muted" TextWrapping="Wrap"/>
           <TextBox x:Name="ScopeNameBox" Text="{Binding ScopeNameInput}" PlaceholderText="{Binding L.ScopeName}"/>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-            <Button Content="{Binding L.Cancel}" Command="{Binding CloseModalCommand}"/>
-            <Button Content="{Binding L.Save}" Classes="primary" Command="{Binding SaveScopeCommand}"/>
+            <Button Content="{Binding L.Cancel}" Command="{Binding CloseModalCommand}" IsCancel="True"/>
+            <Button Content="{Binding L.Save}" Classes="primary" Command="{Binding SaveScopeCommand}" IsDefault="True"/>
           </StackPanel>
         </StackPanel>
       </Border>
@@ -197,7 +207,7 @@
           <TextBlock Text="{Binding ScopeDeleteMessage}" TextWrapping="Wrap"/>
           <TextBlock Text="{Binding L.DeleteScopeHint}" Classes="muted" TextWrapping="Wrap"/>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-            <Button Content="{Binding L.Cancel}" Command="{Binding CloseModalCommand}"/>
+            <Button x:Name="ScopeDeleteCancelButton" Content="{Binding L.Cancel}" Command="{Binding CloseModalCommand}" IsCancel="True"/>
             <Button x:Name="ScopeDeleteConfirmButton" Content="{Binding L.DeleteExactScope}" Classes="danger" Command="{Binding ConfirmDeleteScopeCommand}"/>
           </StackPanel>
         </StackPanel>
@@ -213,7 +223,26 @@
             <TextBlock Text="{Binding L.ValueLabel}" Classes="muted" FontSize="11" VerticalAlignment="Center"/>
             <CheckBox Grid.Column="1" Content="{Binding L.ShowWhileEditing}" IsChecked="{Binding EditorValueVisible}"/>
           </Grid>
-          <TextBox x:Name="RecordValueBox" Text="{Binding EditorValue}" AcceptsReturn="True" TextWrapping="Wrap" PasswordChar="●" RevealPassword="{Binding EditorValueVisible}" MinHeight="180" MaxHeight="330" ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+          <ScrollViewer MinHeight="180" MaxHeight="330" VerticalScrollBarVisibility="Auto">
+            <ItemsControl x:Name="RecordValuesHost" ItemsSource="{Binding EditorValues}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="models:RecordValueEditor">
+                  <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,10">
+                    <TextBlock Text="{Binding Position, StringFormat='Value {0}'}" Classes="muted" FontSize="11" Margin="0,12,10,0"/>
+                    <TextBox Grid.Column="1" Text="{Binding Value}" AcceptsReturn="True" TextWrapping="Wrap" PasswordChar="●" RevealPassword="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).EditorValueVisible}" MinHeight="92" FontFamily="IBM Plex Mono,Cascadia Mono,Consolas,monospace" FontSize="15" Padding="12,10,20,10" ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="{Binding AccessibleName}"/>
+                    <Button Grid.Column="2" Content="↑" Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).MoveEditorValueUpCommand}" CommandParameter="{Binding}" Margin="8,0,0,0" VerticalAlignment="Top" AutomationProperties.Name="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).L.MoveValueUp}"/>
+                    <Button Grid.Column="3" Content="↓" Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).MoveEditorValueDownCommand}" CommandParameter="{Binding}" Margin="4,0,0,0" VerticalAlignment="Top" AutomationProperties.Name="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).L.MoveValueDown}"/>
+                    <Button Grid.Column="4" Content="−" Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).RemoveEditorValueCommand}" CommandParameter="{Binding}" Margin="4,0,0,0" VerticalAlignment="Top" AutomationProperties.Name="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).L.RemoveValue}"/>
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Text="{Binding L.SaveRecordShortcutHint}" Classes="muted" FontSize="11" VerticalAlignment="Center"/>
+            <Button Grid.Column="1" Content="{Binding L.AddValue}" Command="{Binding AddEditorValueCommand}"/>
+          </Grid>
+          <TextBlock Text="{Binding EditorValuesValidationMessage}" IsVisible="{Binding HasEditorValuesValidationError}" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap"/>
           <Border Background="{DynamicResource MutedSurfaceBrush}" CornerRadius="10" Padding="12">
             <StackPanel Spacing="8">
               <TextBlock Text="{Binding L.DefaultDisplay}" FontWeight="SemiBold"/>
@@ -239,8 +268,8 @@
             </StackPanel>
           </Border>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-            <Button Content="{Binding L.Cancel}" Command="{Binding CloseModalCommand}"/>
-            <Button Content="{Binding L.SaveRecord}" Classes="primary" Command="{Binding SaveRecordCommand}"/>
+            <Button Content="{Binding L.Cancel}" Command="{Binding CloseModalCommand}" IsCancel="True"/>
+            <Button Content="{Binding L.SaveRecord}" Classes="primary" Command="{Binding SaveRecordCommand}" IsDefault="True" ToolTip.Tip="{Binding L.SaveRecordShortcutHint}"/>
           </StackPanel>
         </StackPanel>
       </Border>
@@ -251,7 +280,7 @@
           <TextBlock Text="{Binding L.DeleteRecordTitle}" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource DangerBrush}"/>
           <TextBlock Text="{Binding RecordDeleteMessage}" TextWrapping="Wrap" FontFamily="IBM Plex Mono,Cascadia Mono,Consolas,monospace"/>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-            <Button Content="{Binding L.Cancel}" Command="{Binding CloseModalCommand}"/>
+            <Button x:Name="RecordDeleteCancelButton" Content="{Binding L.Cancel}" Command="{Binding CloseModalCommand}" IsCancel="True"/>
             <Button x:Name="RecordDeleteConfirmButton" Content="{Binding L.DeleteExactRecord}" Classes="danger" Command="{Binding ConfirmDeleteRecordCommand}"/>
           </StackPanel>
         </StackPanel>

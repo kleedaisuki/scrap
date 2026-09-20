@@ -62,6 +62,11 @@ public sealed class LocalizationStrings
     public string KeyLabel => Pick("记录键 · 区分大小写", "KEY · case-sensitive identity");
     public string KeyPlaceholder => Pick("记录键", "Record key");
     public string ValueLabel => Pick("记录值 · 仅在选择保存后写入", "VALUE · written only when you choose Save");
+    public string AddValue => Pick("＋ 添加值", "+ Add value");
+    public string RemoveValue => Pick("移除这个值", "Remove this value");
+    public string MoveValueUp => Pick("将这个值上移", "Move this value up");
+    public string MoveValueDown => Pick("将这个值下移", "Move this value down");
+    public string SaveRecordShortcutHint => Pick("值内回车换行 · Ctrl+Enter 保存", "Enter adds a line · Ctrl+Enter saves");
     public string ShowWhileEditing => Pick("编辑时显示", "Show while editing");
     public string MaskedTitle => Pick("默认遮罩显示", "Mask after saving");
     public string DefaultDisplay => Pick("默认显示方式", "Default display");
@@ -100,6 +105,8 @@ public sealed class LocalizationStrings
     public string MutationTimedOut => Pick("等待操作完成时超时，最终结果未知。请刷新核对，不要盲目重试。", "The operation timed out and its final outcome is unknown. Refresh to verify before retrying.");
     public string GenericErrorBody => Pick("未能完成操作。请重试；如果问题持续，请检查 scrapd 日志。", "The operation could not be completed. Retry, then inspect the scrapd logs if it persists.");
     public string InvalidSearch => Pick("搜索表达式无效。请检查正则表达式或查询条件。", "The search expression is invalid. Check the regular expression or query options.");
+    public string TooManyValues(int maximum) => Pick($"一条记录最多包含 {maximum} 个值。", $"A record can contain at most {maximum} values.");
+    public string ValuesTooLarge(int maximumKiB) => Pick($"所有值的 UTF-8 总大小不能超过 {maximumKiB} KiB。", $"All values together must not exceed {maximumKiB} KiB of UTF-8 text.");
 
     public string ErrorTitle(ScrapClientErrorKind kind) => kind switch
     {

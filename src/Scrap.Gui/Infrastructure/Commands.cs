@@ -8,11 +8,18 @@ namespace Scrap.Gui.Infrastructure;
 /// </summary>
 internal sealed class RelayCommand : ICommand
 {
-    private readonly Action _execute;
-    private readonly Func<bool>? _canExecute;
+    private readonly Action<object?> _execute;
+    private readonly Func<object?, bool>? _canExecute;
 
     /// <summary>创建命令。Creates a command.</summary>
     internal RelayCommand(Action execute, Func<bool>? canExecute = null)
+    {
+        _execute = _ => execute();
+        _canExecute = canExecute is null ? null : _ => canExecute();
+    }
+
+    /// <summary>创建接受绑定参数的命令。Creates a command that accepts a binding parameter.</summary>
+    internal RelayCommand(Action<object?> execute, Func<object?, bool>? canExecute = null)
     {
         _execute = execute;
         _canExecute = canExecute;
@@ -22,10 +29,10 @@ internal sealed class RelayCommand : ICommand
     public event EventHandler? CanExecuteChanged;
 
     /// <inheritdoc />
-    public bool CanExecute(object? parameter) => _canExecute?.Invoke() ?? true;
+    public bool CanExecute(object? parameter) => _canExecute?.Invoke(parameter) ?? true;
 
     /// <inheritdoc />
-    public void Execute(object? parameter) => _execute();
+    public void Execute(object? parameter) => _execute(parameter);
 
     /// <summary>通知控件重新计算可执行状态。Notifies controls to recompute command availability.</summary>
     internal void NotifyCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
@@ -37,12 +44,19 @@ internal sealed class RelayCommand : ICommand
 /// </summary>
 internal sealed class AsyncRelayCommand : ICommand
 {
-    private readonly Func<Task> _execute;
-    private readonly Func<bool>? _canExecute;
+    private readonly Func<object?, Task> _execute;
+    private readonly Func<object?, bool>? _canExecute;
     private bool _isRunning;
 
     /// <summary>创建异步命令。Creates an asynchronous command.</summary>
     internal AsyncRelayCommand(Func<Task> execute, Func<bool>? canExecute = null)
+    {
+        _execute = _ => execute();
+        _canExecute = canExecute is null ? null : _ => canExecute();
+    }
+
+    /// <summary>创建接受绑定参数的异步命令。Creates an asynchronous command that accepts a binding parameter.</summary>
+    internal AsyncRelayCommand(Func<object?, Task> execute, Func<object?, bool>? canExecute = null)
     {
         _execute = execute;
         _canExecute = canExecute;
@@ -52,7 +66,7 @@ internal sealed class AsyncRelayCommand : ICommand
     public event EventHandler? CanExecuteChanged;
 
     /// <inheritdoc />
-    public bool CanExecute(object? parameter) => !_isRunning && (_canExecute?.Invoke() ?? true);
+    public bool CanExecute(object? parameter) => !_isRunning && (_canExecute?.Invoke(parameter) ?? true);
 
     /// <inheritdoc />
     public async void Execute(object? parameter)
@@ -67,7 +81,7 @@ internal sealed class AsyncRelayCommand : ICommand
 
         try
         {
-            await _execute();
+            await _execute(parameter);
         }
         finally
         {

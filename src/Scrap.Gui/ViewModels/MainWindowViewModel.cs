@@ -1,4 +1,7 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Windows.Input;
 using Scrap.Gui.Abstractions;
 using Scrap.Gui.Infrastructure;
@@ -15,6 +18,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 {
     /// <summary>默认搜索候选上限。Default search candidate limit.</summary>
     public const int DefaultSearchLimit = 200;
+    private const int MaxRecordValues = 32;
+    private const int MaxRecordValueBytes = 64 * 1024;
 
     private static readonly TimeSpan DefaultDebounce = TimeSpan.FromMilliseconds(220);
     private static readonly TimeSpan DefaultRevealDuration = TimeSpan.FromSeconds(15);
@@ -35,7 +40,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private readonly SemaphoreSlim _clipboardLifetimeGate = new(1, 1);
     private CancellationTokenSource? _searchCancellation;
     private CancellationTokenSource? _detailCancellation;
-    private CancellationTokenSource? _revealCancellation;
+    private readonly Dictionary<int, CancellationTokenSource> _revealCancellations = [];
+    private readonly HashSet<int> _revealedValueIndexes = [];
     private CancellationTokenSource? _clipboardCancellation;
     private CancellationTokenSource? _toastCancellation;
     private ScopeSummary? _selectedScope;
@@ -53,6 +59,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private bool _isLoadingScopes;
     private bool _isLoadingRecord;
     private bool _isRevealed;
+    private int _activeValueIndex;
     private string? _searchError;
     private string? _errorTitle;
     private string? _errorMessage;
@@ -69,7 +76,6 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private string? _recordEditorScope;
     private RecordDetails? _recordEditorOriginal;
     private string _editorKey = string.Empty;
-    private string _editorValue = string.Empty;
     private bool _editorIsMasked = true;
     private bool _editorValueVisible;
     private bool _isRecordDeleteOpen;
@@ -81,6 +87,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private int _clientDisposed;
     private long _clipboardGeneration;
     private string? _ownedMaskedClipboardValue;
+    private RecordValueEditor? _requestedEditorValueFocus;
 
     /// <summary>
     /// 创建主窗口状态机。Creates the main-window state machine.
@@ -133,7 +140,25 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         SaveRecordCommand = new AsyncRelayCommand(SaveRecordAsync, CanSaveRecord);
         ConfirmDeleteRecordCommand = new AsyncRelayCommand(DeleteRecordAsync, () => !IsBusy && SelectedRecord is not null);
         CopyCommand = new AsyncRelayCommand(CopyAsync, () => !IsBusy && SelectedRecord is not null);
+        CopyValueCommand = new AsyncRelayCommand(
+            parameter => CopyDisplayValueAsync(parameter as RecordValueDisplay),
+            parameter => !IsBusy && SelectedRecord is not null && parameter is RecordValueDisplay);
+        AddEditorValueCommand = new RelayCommand(
+            AddEditorValue,
+            () => !IsBusy && IsRecordEditorOpen && EditorValues.Count < MaxRecordValues);
+        RemoveEditorValueCommand = new RelayCommand(
+            parameter => RemoveEditorValue(parameter as RecordValueEditor),
+            parameter => !IsBusy && IsRecordEditorOpen && EditorValues.Count > 1 && parameter is RecordValueEditor);
+        MoveEditorValueUpCommand = new RelayCommand(
+            parameter => MoveEditorValue(parameter as RecordValueEditor, -1),
+            parameter => CanMoveEditorValue(parameter as RecordValueEditor, -1));
+        MoveEditorValueDownCommand = new RelayCommand(
+            parameter => MoveEditorValue(parameter as RecordValueEditor, 1),
+            parameter => CanMoveEditorValue(parameter as RecordValueEditor, 1));
         ToggleRevealCommand = new RelayCommand(ToggleReveal, () => !IsBusy && SelectedRecord?.Presentation == RecordPresentation.Masked);
+        ToggleRevealValueCommand = new RelayCommand(
+            parameter => ToggleRevealValue(parameter as RecordValueDisplay),
+            parameter => !IsBusy && SelectedRecord?.Presentation == RecordPresentation.Masked && parameter is RecordValueDisplay);
         CloseModalCommand = new RelayCommand(CloseModals, () => !IsBusy && HasOpenModal);
         DismissErrorCommand = new RelayCommand(ClearError);
     }
@@ -143,6 +168,16 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     /// <summary>由 daemon 排序的 key 候选。Key candidates ranked by the daemon.</summary>
     public ObservableCollection<RecordCandidate> Candidates { get; } = [];
+
+    /// <summary>编辑器中的非空有序 value 集合。Non-empty ordered value collection in the editor.</summary>
+    public ObservableCollection<RecordValueEditor> EditorValues { get; } = [];
+
+    /// <summary>请求视图聚焦的新建 value 编辑项。New value editor item that the view should focus.</summary>
+    public RecordValueEditor? RequestedEditorValueFocus
+    {
+        get => _requestedEditorValueFocus;
+        private set => SetProperty(ref _requestedEditorValueFocus, value);
+    }
 
     /// <summary>可独立多选的检索 scope；空选择在协议边界表示所有 scope。Independently selectable search scopes; an empty selection means all scopes at the protocol boundary.</summary>
     public ObservableCollection<SearchScopeChoice> SearchScopeChoices { get; } = [];
@@ -263,10 +298,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             }
 
             CancelReveal();
+            _activeValueIndex = 0;
             OnPropertyChanged(nameof(HasSelectedRecord));
             OnPropertyChanged(nameof(HasNoSelectedRecord));
             OnPropertyChanged(nameof(SelectedIsMasked));
-            OnPropertyChanged(nameof(DisplayValue));
+            OnPropertyChanged(nameof(DisplayValues));
             OnPropertyChanged(nameof(RevealButtonText));
             OnPropertyChanged(nameof(RecordIdentity));
             OnPropertyChanged(nameof(UpdatedText));
@@ -465,12 +501,17 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     /// <summary>是否显示反馈条。Whether the feedback toast is shown.</summary>
     public bool HasToast => ToastMessage is not null;
 
-    /// <summary>详情区展示值。Value shown in the detail panel.</summary>
-    public string DisplayValue => SelectedRecord is null
-        ? string.Empty
-        : SelectedRecord.Presentation == RecordPresentation.Plain || IsRevealed
-            ? SelectedRecord.Value
-            : "••••••••••••";
+    /// <summary>详情区的逐值显示投影；绝不隐式拼接。Per-value detail projections; values are never implicitly concatenated.</summary>
+    public IReadOnlyList<RecordValueDisplay> DisplayValues => SelectedRecord is null
+        ? []
+        : SelectedRecord.Values.Select((value, index) => new RecordValueDisplay(
+            index + 1,
+            SelectedRecord.Presentation == RecordPresentation.Plain || _revealedValueIndexes.Contains(index)
+                ? value
+                : "••••••••••••",
+            value,
+            SelectedRecord.Presentation == RecordPresentation.Masked,
+            _revealedValueIndexes.Contains(index) ? L.Hide : L.Reveal)).ToArray();
 
     /// <summary>遮罩值当前是否已明确显示。Whether a masked value is currently explicitly revealed.</summary>
     public bool IsRevealed
@@ -480,7 +521,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         {
             if (SetProperty(ref _isRevealed, value))
             {
-                OnPropertyChanged(nameof(DisplayValue));
+                OnPropertyChanged(nameof(DisplayValues));
                 OnPropertyChanged(nameof(RevealButtonText));
             }
         }
@@ -582,11 +623,15 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
     }
 
-    /// <summary>编辑器完整 value。Complete editor value.</summary>
+    /// <summary>旧版第一 value 编辑器访问器。Legacy first-value editor accessor.</summary>
     public string EditorValue
     {
-        get => _editorValue;
-        set => SetProperty(ref _editorValue, value);
+        get => EditorValues.Count == 0 ? string.Empty : EditorValues[0].Value;
+        set
+        {
+            EnsureEditorValue();
+            EditorValues[0].Value = value;
+        }
     }
 
     /// <summary>编辑器呈现策略是否为 masked。Whether the editor presentation is masked.</summary>
@@ -623,7 +668,19 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     }
 
     /// <summary>编辑器是否允许切换 value 可见性。Whether editor value visibility can be toggled.</summary>
-    public bool EditorCanToggleVisibility => EditorValue is not null;
+    public bool EditorCanToggleVisibility => EditorValues.Count > 0;
+
+    /// <summary>本地 value 集合验证消息。Local validation message for the value collection.</summary>
+    public string? EditorValuesValidationMessage => EditorValues.Count > MaxRecordValues
+        ? L.TooManyValues(MaxRecordValues)
+        : EditorValueByteCount > MaxRecordValueBytes
+            ? L.ValuesTooLarge(MaxRecordValueBytes / 1024)
+            : null;
+
+    /// <summary>value 集合是否超出可保存界限。Whether the value collection exceeds save limits.</summary>
+    public bool HasEditorValuesValidationError => EditorValuesValidationMessage is not null;
+
+    private int EditorValueByteCount => EditorValues.Sum(item => Encoding.UTF8.GetByteCount(item.Value));
 
     /// <summary>编辑已有记录时是否锁定 key。Whether key editing is locked for an existing record.</summary>
     public bool IsEditorKeyReadOnly => _isEditingRecord;
@@ -703,8 +760,26 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     /// <summary>复制当前 value。Copies the current value.</summary>
     public ICommand CopyCommand { get; }
 
+    /// <summary>复制显式选定的单个 value。Copies one explicitly selected value.</summary>
+    public ICommand CopyValueCommand { get; }
+
+    /// <summary>在末尾添加 value。Appends a value.</summary>
+    public ICommand AddEditorValueCommand { get; }
+
+    /// <summary>删除指定 value，但保持集合非空。Removes a value while preserving a non-empty collection.</summary>
+    public ICommand RemoveEditorValueCommand { get; }
+
+    /// <summary>将 value 向前移动一位。Moves a value one position earlier.</summary>
+    public ICommand MoveEditorValueUpCommand { get; }
+
+    /// <summary>将 value 向后移动一位。Moves a value one position later.</summary>
+    public ICommand MoveEditorValueDownCommand { get; }
+
     /// <summary>切换短暂显示。Toggles temporary reveal.</summary>
     public ICommand ToggleRevealCommand { get; }
+
+    /// <summary>切换单个 value 的短暂显示。Toggles temporary reveal for one value.</summary>
+    public ICommand ToggleRevealValueCommand { get; }
 
     /// <summary>取消编辑或确认，不提交。Cancels an editor or confirmation without committing.</summary>
     public ICommand CloseModalCommand { get; }
@@ -728,7 +803,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         _lifetime.Cancel();
         _searchCancellation?.Cancel();
         _detailCancellation?.Cancel();
-        _revealCancellation?.Cancel();
+        foreach (CancellationTokenSource cancellation in _revealCancellations.Values)
+        {
+            cancellation.Cancel();
+        }
         _clipboardCancellation?.Cancel();
         _toastCancellation?.Cancel();
     }
@@ -762,7 +840,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
                 _lifetime.Dispose();
                 _searchCancellation?.Dispose();
                 _detailCancellation?.Dispose();
-                _revealCancellation?.Dispose();
+                foreach (CancellationTokenSource cancellation in _revealCancellations.Values)
+                {
+                    cancellation.Dispose();
+                }
                 _clipboardCancellation?.Dispose();
                 _toastCancellation?.Dispose();
             }
@@ -821,6 +902,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         SelectedCandidate = null;
         SelectedRecord = null;
         SearchError = null;
+        if (SelectedMode is SearchMode.Exact or SearchMode.Regex)
+        {
+            // Strict modes must never leave broader fuzzy rows visible while their request is in flight.
+            Candidates.Clear();
+            NotifyCollectionState();
+        }
 
         if (SelectedScope is null)
         {
@@ -846,7 +933,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             }
 
             Candidates.Clear();
-            foreach (RecordCandidate candidate in results)
+            foreach (RecordCandidate candidate in FilterStrictMatches(results))
             {
                 Candidates.Add(candidate);
             }
@@ -884,6 +971,36 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
 
         return succeeded;
+    }
+
+    private IEnumerable<RecordCandidate> FilterStrictMatches(IEnumerable<RecordCandidate> candidates)
+    {
+        if (SelectedMode is SearchMode.Exact or SearchMode.Regex && SearchText.Length == 0)
+        {
+            return [];
+        }
+
+        StringComparison comparison = CaseSensitive
+            ? StringComparison.Ordinal
+            : StringComparison.OrdinalIgnoreCase;
+        if (SelectedMode == SearchMode.Exact)
+        {
+            return candidates.Where(candidate => string.Equals(candidate.Key, SearchText, comparison));
+        }
+
+        if (SelectedMode != SearchMode.Regex)
+        {
+            return candidates;
+        }
+
+        var options = RegexOptions.CultureInvariant;
+        if (!CaseSensitive)
+        {
+            options |= RegexOptions.IgnoreCase;
+        }
+
+        var expression = new Regex(SearchText, options, TimeSpan.FromMilliseconds(100));
+        return candidates.Where(candidate => expression.IsMatch(candidate.Key)).ToArray();
     }
 
     private async Task<IReadOnlyList<RecordCandidate>> SearchSelectedScopesAsync(CancellationToken cancellationToken)
@@ -1129,7 +1246,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         _recordEditorScope = SelectedScope.Name;
         _recordEditorOriginal = null;
         EditorKey = string.Empty;
-        EditorValue = string.Empty;
+        ReplaceEditorValues([string.Empty]);
         EditorIsMasked = true;
         EditorValueVisible = false;
         OnPropertyChanged(nameof(RecordEditorTitle));
@@ -1151,7 +1268,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         _recordEditorScope = record.Scope;
         _recordEditorOriginal = record;
         EditorKey = record.Key;
-        EditorValue = record.Value;
+        ReplaceEditorValues(record.Values);
         EditorIsMasked = record.Presentation == RecordPresentation.Masked;
         EditorValueVisible = record.Presentation == RecordPresentation.Plain;
         OnPropertyChanged(nameof(RecordEditorTitle));
@@ -1174,7 +1291,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         NotifyCommandStates();
     }
 
-    private bool CanSaveRecord() => !IsBusy && IsRecordEditorOpen && _recordEditorScope is not null && EditorKey.Length > 0;
+    private bool CanSaveRecord() =>
+        !IsBusy && IsRecordEditorOpen && _recordEditorScope is not null &&
+        EditorKey.Length > 0 && EditorValues.Count is > 0 and <= MaxRecordValues &&
+        EditorValueByteCount <= MaxRecordValueBytes;
 
     private async Task SaveRecordAsync()
     {
@@ -1195,7 +1315,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             var request = new SaveRecordRequest(
                 editorScope,
                 key,
-                EditorValue,
+                EditorValues.Select(item => item.Value).ToArray(),
                 EditorIsMasked ? RecordPresentation.Masked : RecordPresentation.Plain,
                 isEdit ? original?.Key : null,
                 isEdit ? original?.Revision : 0);
@@ -1306,6 +1426,28 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             return;
         }
 
+        int index = Math.Clamp(_activeValueIndex, 0, record.Values.Count - 1);
+        await CopyValueAsync(record.Values[index]);
+    }
+
+    private async Task CopyDisplayValueAsync(RecordValueDisplay? display)
+    {
+        if (display is null)
+        {
+            return;
+        }
+
+        _activeValueIndex = display.Position - 1;
+        await CopyValueAsync(display.RawValue);
+    }
+
+    private async Task CopyValueAsync(string? value)
+    {
+        if (SelectedRecord is not { } record || value is null)
+        {
+            return;
+        }
+
         try
         {
             await _clipboardLifetimeGate.WaitAsync(_lifetime.Token);
@@ -1325,7 +1467,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
             try
             {
-                await _clipboard.SetTextAsync(record.Value, _lifetime.Token);
+                await _clipboard.SetTextAsync(value, _lifetime.Token);
             }
             catch
             {
@@ -1339,7 +1481,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
             if (record.Presentation == RecordPresentation.Masked)
             {
-                ScheduleClipboardCleanup(record.Value, generation);
+                ScheduleClipboardCleanup(value, generation);
             }
             else
             {
@@ -1363,6 +1505,118 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         {
             _clipboardLifetimeGate.Release();
         }
+    }
+
+    private void ReplaceEditorValues(IEnumerable<string> values)
+    {
+        foreach (RecordValueEditor item in EditorValues)
+        {
+            item.PropertyChanged -= OnEditorValueChanged;
+        }
+
+        EditorValues.Clear();
+        foreach (string value in values)
+        {
+            AddEditorValueItem(value);
+        }
+
+        EnsureEditorValue();
+        OnPropertyChanged(nameof(EditorCanToggleVisibility));
+        NotifyEditorValuesChanged();
+    }
+
+    private void EnsureEditorValue()
+    {
+        if (EditorValues.Count == 0)
+        {
+            AddEditorValueItem(string.Empty);
+        }
+    }
+
+    private void AddEditorValue()
+    {
+        if (EditorValues.Count < MaxRecordValues)
+        {
+            AddEditorValueItem(string.Empty);
+            RequestEditorValueFocus(EditorValues[^1]);
+            NotifyEditorValuesChanged();
+        }
+    }
+
+    private void RemoveEditorValue(RecordValueEditor? item)
+    {
+        if (item is null || EditorValues.Count <= 1)
+        {
+            return;
+        }
+
+        item.PropertyChanged -= OnEditorValueChanged;
+        EditorValues.Remove(item);
+        for (int index = 0; index < EditorValues.Count; index++)
+        {
+            EditorValues[index].SetPosition(index + 1);
+        }
+
+        NotifyEditorValuesChanged();
+    }
+
+    private bool CanMoveEditorValue(RecordValueEditor? item, int offset)
+    {
+        if (IsBusy || !IsRecordEditorOpen || item is null)
+        {
+            return false;
+        }
+
+        int index = EditorValues.IndexOf(item);
+        int destination = index + offset;
+        return index >= 0 && destination >= 0 && destination < EditorValues.Count;
+    }
+
+    private void MoveEditorValue(RecordValueEditor? item, int offset)
+    {
+        if (!CanMoveEditorValue(item, offset) || item is null)
+        {
+            return;
+        }
+
+        int source = EditorValues.IndexOf(item);
+        EditorValues.Move(source, source + offset);
+        for (int index = 0; index < EditorValues.Count; index++)
+        {
+            EditorValues[index].SetPosition(index + 1);
+        }
+
+        RequestEditorValueFocus(item);
+        NotifyEditorValuesChanged();
+    }
+
+    private void RequestEditorValueFocus(RecordValueEditor item)
+    {
+        RequestedEditorValueFocus = null;
+        RequestedEditorValueFocus = item;
+    }
+
+    private void AddEditorValueItem(string value)
+    {
+        var item = new RecordValueEditor(value, EditorValues.Count + 1);
+        item.PropertyChanged += OnEditorValueChanged;
+        EditorValues.Add(item);
+    }
+
+    private void OnEditorValueChanged(object? sender, PropertyChangedEventArgs eventArgs)
+    {
+        if (eventArgs.PropertyName == nameof(RecordValueEditor.Value))
+        {
+            NotifyEditorValuesChanged();
+        }
+    }
+
+    private void NotifyEditorValuesChanged()
+    {
+        OnPropertyChanged(nameof(EditorValue));
+        OnPropertyChanged(nameof(EditorValuesValidationMessage));
+        OnPropertyChanged(nameof(HasEditorValuesValidationError));
+        NotifyCommandStates();
     }
 
     private async Task ClearClipboardIfUnchangedAsync(
@@ -1443,43 +1697,83 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     private void ToggleReveal()
     {
-        if (SelectedRecord?.Presentation != RecordPresentation.Masked)
+        if (SelectedRecord is not { Presentation: RecordPresentation.Masked } record)
         {
             return;
         }
 
-        if (IsRevealed)
-        {
-            CancelReveal();
-            return;
-        }
-
-        IsRevealed = true;
-        _revealCancellation?.Cancel();
-        _revealCancellation?.Dispose();
-        _revealCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-        _ = HideAfterDelayAsync(_revealCancellation.Token);
+        int index = Math.Clamp(_activeValueIndex, 0, record.Values.Count - 1);
+        ToggleRevealIndex(index);
     }
 
-    private async Task HideAfterDelayAsync(CancellationToken cancellationToken)
+    private void ToggleRevealValue(RecordValueDisplay? display)
+    {
+        if (display is null || SelectedRecord?.Presentation != RecordPresentation.Masked)
+        {
+            return;
+        }
+
+        _activeValueIndex = display.Position - 1;
+        ToggleRevealIndex(_activeValueIndex);
+    }
+
+    private void ToggleRevealIndex(int index)
+    {
+        if (_revealedValueIndexes.Remove(index))
+        {
+            if (_revealCancellations.Remove(index, out CancellationTokenSource? existing))
+            {
+                existing.Cancel();
+                existing.Dispose();
+            }
+
+            RefreshRevealState();
+            return;
+        }
+
+        _revealedValueIndexes.Add(index);
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        _revealCancellations[index] = cancellation;
+        RefreshRevealState();
+        _ = HideAfterDelayAsync(index, cancellation);
+    }
+
+    private async Task HideAfterDelayAsync(int index, CancellationTokenSource cancellation)
     {
         try
         {
-            await Task.Delay(_revealDuration, _timeProvider, cancellationToken);
-            IsRevealed = false;
+            await Task.Delay(_revealDuration, _timeProvider, cancellation.Token);
+            _revealedValueIndexes.Remove(index);
+            _revealCancellations.Remove(index);
+            RefreshRevealState();
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
             // Explicit hide, selection change, or shutdown.
+        }
+        finally
+        {
+            cancellation.Dispose();
         }
     }
 
     private void CancelReveal()
     {
-        _revealCancellation?.Cancel();
-        _revealCancellation?.Dispose();
-        _revealCancellation = null;
-        IsRevealed = false;
+        foreach (CancellationTokenSource cancellation in _revealCancellations.Values)
+        {
+            cancellation.Cancel();
+            cancellation.Dispose();
+        }
+
+        _revealCancellations.Clear();
+        _revealedValueIndexes.Clear();
+        RefreshRevealState();
+    }
+
+    private void RefreshRevealState()
+    {
+        IsRevealed = _revealedValueIndexes.Count > 0;
+        OnPropertyChanged(nameof(DisplayValues));
     }
 
     private void CloseModals()
@@ -1749,7 +2043,13 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             SaveRecordCommand,
             ConfirmDeleteRecordCommand,
             CopyCommand,
+            CopyValueCommand,
+            AddEditorValueCommand,
+            RemoveEditorValueCommand,
+            MoveEditorValueUpCommand,
+            MoveEditorValueDownCommand,
             ToggleRevealCommand,
+            ToggleRevealValueCommand,
             CloseModalCommand,
         })
         {

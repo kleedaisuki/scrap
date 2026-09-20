@@ -323,13 +323,214 @@ public sealed class MainWindowViewModelTests
         Assert.Equal(target, viewModel.SelectedCandidate);
     }
 
+    /// <summary>
+    /// 精确与正则模式必须在 GUI 边界拒绝 client 意外返回的无关候选。
+    /// Exact and regex modes must reject unrelated candidates accidentally returned by the client boundary.
+    /// </summary>
+    [Theory]
+    [InlineData(SearchMode.Exact, "token", "token")]
+    [InlineData(SearchMode.Regex, "^tok.*$", "token")]
+    public async Task StrictSearchModesDisplayOnlyActualMatches(SearchMode mode, string query, string expected)
+    {
+        using var directory = TestDirectory.Create();
+        var client = new FakeScrapClient
+        {
+            Scopes = [new ScopeSummary("scope", 2)],
+            SearchResults =
+            [
+                new RecordCandidate("scope", expected, RecordPresentation.Masked),
+                new RecordCandidate("scope", "unrelated", RecordPresentation.Masked),
+            ],
+        };
+        await using var viewModel = CreateViewModel(
+            client,
+            new UserPreferenceStore(Path.Combine(directory.Path, "preferences.json")));
+
+        await viewModel.InitializeAsync();
+        viewModel.SelectedMode = mode;
+        viewModel.SearchText = query;
+        await WaitUntilAsync(() => client.SearchRequests.Any(request => request.Query == query));
+        await WaitUntilAsync(() => viewModel.Candidates.Count == 1);
+
+        Assert.Equal(expected, Assert.Single(viewModel.Candidates).Key);
+        Assert.Equal(mode, client.SearchRequests[^1].Mode);
+    }
+
+    /// <summary>
+    /// 空的严格查询不能被当作“匹配一切”，特别是空正则。
+    /// A blank strict query must not become match-all, especially for an empty regular expression.
+    /// </summary>
+    [Theory]
+    [InlineData(SearchMode.Exact)]
+    [InlineData(SearchMode.Regex)]
+    public async Task BlankStrictSearchDisplaysNoCandidates(SearchMode mode)
+    {
+        using var directory = TestDirectory.Create();
+        var client = new FakeScrapClient
+        {
+            Scopes = [new ScopeSummary("scope", 1)],
+            SearchResults = [new RecordCandidate("scope", "anything", RecordPresentation.Masked)],
+        };
+        await using var viewModel = CreateViewModel(
+            client,
+            new UserPreferenceStore(Path.Combine(directory.Path, "preferences.json")));
+
+        await viewModel.InitializeAsync();
+        viewModel.SelectedMode = mode;
+        await WaitUntilAsync(() => client.SearchRequests.Any(request => request.Mode == mode));
+        await WaitUntilAsync(() => !viewModel.IsSearching);
+
+        Assert.Empty(viewModel.Candidates);
+    }
+
+    /// <summary>
+    /// 编辑器必须保留 value 顺序、重复项与空文本，且不能删除最后一项。
+    /// The editor must preserve value order, duplicates, and empty text and must not remove its final item.
+    /// </summary>
+    [Fact]
+    public async Task MultiValueEditorSavesOrderedNonEmptyCollection()
+    {
+        using var directory = TestDirectory.Create();
+        var client = new FakeScrapClient { Scopes = [new ScopeSummary("scope", 0)] };
+        await using var viewModel = CreateViewModel(
+            client,
+            new UserPreferenceStore(Path.Combine(directory.Path, "preferences.json")));
+
+        await viewModel.InitializeAsync();
+        viewModel.OpenCreateRecordCommand.Execute(null);
+        viewModel.EditorKey = "key";
+        viewModel.EditorValues[0].Value = "same";
+        viewModel.AddEditorValueCommand.Execute(null);
+        viewModel.EditorValues[1].Value = "same";
+        viewModel.AddEditorValueCommand.Execute(null);
+        viewModel.EditorValues[2].Value = "third";
+        Assert.Equal(3, viewModel.EditorValues.Count);
+
+        viewModel.MoveEditorValueUpCommand.Execute(viewModel.EditorValues[2]);
+        Assert.Equal(["same", "third", "same"], viewModel.EditorValues.Select(value => value.Value));
+
+        viewModel.RemoveEditorValueCommand.Execute(viewModel.EditorValues[2]);
+        Assert.Equal(2, viewModel.EditorValues.Count);
+        viewModel.RemoveEditorValueCommand.Execute(viewModel.EditorValues[1]);
+        Assert.Single(viewModel.EditorValues);
+        Assert.False(viewModel.RemoveEditorValueCommand.CanExecute(viewModel.EditorValues[0]));
+
+        viewModel.AddEditorValueCommand.Execute(null);
+        viewModel.SaveRecordCommand.Execute(null);
+        await WaitUntilAsync(() => client.SaveRequests.Count == 1);
+
+        Assert.Equal(["same", ""], Assert.Single(client.SaveRequests).Values);
+    }
+
+    /// <summary>
+    /// 详情区必须为每个 value 保留独立行，显示与遮罩都不得改变集合结构。
+    /// Details must preserve one row per value; reveal and masking must not change collection structure.
+    /// </summary>
+    [Fact]
+    public async Task MultiValueDetailsRevealEveryValueWithoutConcatenation()
+    {
+        using var directory = TestDirectory.Create();
+        var candidate = new RecordCandidate("scope", "key", RecordPresentation.Masked);
+        var client = new FakeScrapClient
+        {
+            Scopes = [new ScopeSummary("scope", 1)],
+            SearchResults = [candidate],
+            Record = new RecordDetails(
+                "scope",
+                "key",
+                ["first", "", "third"],
+                RecordPresentation.Masked,
+                DateTimeOffset.UnixEpoch,
+                1),
+        };
+        await using var viewModel = CreateViewModel(
+            client,
+            new UserPreferenceStore(Path.Combine(directory.Path, "preferences.json")));
+
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.Candidates.Count == 1);
+        viewModel.SelectedCandidate = candidate;
+        await WaitUntilAsync(() => viewModel.SelectedRecord is not null);
+
+        Assert.Equal(3, viewModel.DisplayValues.Count);
+        Assert.All(viewModel.DisplayValues, value => Assert.Equal("••••••••••••", value.Text));
+
+        viewModel.ToggleRevealValueCommand.Execute(viewModel.DisplayValues[1]);
+
+        Assert.Equal(["••••••••••••", "", "••••••••••••"], viewModel.DisplayValues.Select(value => value.Text));
+    }
+
+    /// <summary>
+    /// GUI 必须在发送前执行集合数量与 UTF-8 总大小限制，不依赖后端驳回。
+    /// The GUI must enforce count and aggregate UTF-8 limits before sending rather than relying on backend rejection.
+    /// </summary>
+    [Fact]
+    public async Task MultiValueEditorEnforcesLocalCollectionLimits()
+    {
+        using var directory = TestDirectory.Create();
+        var client = new FakeScrapClient { Scopes = [new ScopeSummary("scope", 0)] };
+        await using var viewModel = CreateViewModel(
+            client,
+            new UserPreferenceStore(Path.Combine(directory.Path, "preferences.json")));
+
+        await viewModel.InitializeAsync();
+        viewModel.OpenCreateRecordCommand.Execute(null);
+        viewModel.EditorKey = "key";
+        for (int index = 1; index < 32; index++)
+        {
+            viewModel.AddEditorValueCommand.Execute(null);
+        }
+
+        Assert.Equal(32, viewModel.EditorValues.Count);
+        Assert.False(viewModel.AddEditorValueCommand.CanExecute(null));
+
+        viewModel.EditorValues[0].Value = new string('界', 22_000);
+        Assert.True(viewModel.HasEditorValuesValidationError);
+        Assert.False(viewModel.SaveRecordCommand.CanExecute(null));
+    }
+
+    /// <summary>
+    /// 显式逐值操作必须更新活动项，工作区复制不得退回到隐式拼接或错误的第一项。
+    /// Explicit per-value actions must update the active item; workspace copy must not concatenate or revert to the wrong first item.
+    /// </summary>
+    [Fact]
+    public async Task PerValueCopySetsTheWorkspaceCopyTarget()
+    {
+        using var directory = TestDirectory.Create();
+        var candidate = new RecordCandidate("scope", "key", RecordPresentation.Plain);
+        var client = new FakeScrapClient
+        {
+            Scopes = [new ScopeSummary("scope", 1)],
+            SearchResults = [candidate],
+            Record = new RecordDetails("scope", "key", ["first", "second"], RecordPresentation.Plain, DateTimeOffset.UnixEpoch, 1),
+        };
+        var clipboard = new FakeClipboardService();
+        await using var viewModel = CreateViewModel(
+            client,
+            new UserPreferenceStore(Path.Combine(directory.Path, "preferences.json")),
+            clipboard: clipboard);
+
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.Candidates.Count == 1);
+        viewModel.SelectedCandidate = candidate;
+        await WaitUntilAsync(() => viewModel.SelectedRecord is not null);
+
+        viewModel.CopyValueCommand.Execute(viewModel.DisplayValues[1]);
+        await WaitUntilAsync(() => clipboard.Writes.Count == 1);
+        viewModel.CopyCommand.Execute(null);
+        await WaitUntilAsync(() => clipboard.Writes.Count == 2);
+
+        Assert.Equal(["second", "second"], clipboard.Writes);
+    }
+
     private static MainWindowViewModel CreateViewModel(
         FakeScrapClient client,
         UserPreferenceStore store,
-        Action<AppTheme>? applyTheme = null) =>
+        Action<AppTheme>? applyTheme = null,
+        FakeClipboardService? clipboard = null) =>
         new(
             client,
-            new FakeClipboardService(),
+            clipboard ?? new FakeClipboardService(),
             debounce: TimeSpan.Zero,
             preferenceStore: store,
             applyTheme: applyTheme);
@@ -361,6 +562,7 @@ internal sealed class FakeScrapClient : IScrapClient
     private readonly object _gate = new();
     private readonly List<RecordSearchRequest> _searchRequests = [];
     private readonly List<(string Scope, string Key)> _getRecordCalls = [];
+    private readonly List<SaveRecordRequest> _saveRequests = [];
     private int _listScopesCalls;
 
     /// <summary>列举结果。Scope-list result.</summary>
@@ -395,6 +597,18 @@ internal sealed class FakeScrapClient : IScrapClient
             lock (_gate)
             {
                 return [.. _getRecordCalls];
+            }
+        }
+    }
+
+    /// <summary>线程安全的保存请求快照。Thread-safe snapshot of save requests.</summary>
+    internal IReadOnlyList<SaveRecordRequest> SaveRequests
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _saveRequests];
             }
         }
     }
@@ -444,7 +658,15 @@ internal sealed class FakeScrapClient : IScrapClient
     }
 
     /// <inheritdoc />
-    public Task SaveRecordAsync(SaveRecordRequest request, CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task SaveRecordAsync(SaveRecordRequest request, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            _saveRequests.Add(request);
+        }
+
+        return Task.CompletedTask;
+    }
 
     /// <inheritdoc />
     public Task DeleteRecordAsync(string scope, string key, long? expectedRevision, CancellationToken cancellationToken) => Task.CompletedTask;
@@ -459,8 +681,30 @@ internal sealed class FakeScrapClient : IScrapClient
 /// </summary>
 internal sealed class FakeClipboardService : IClipboardService
 {
+    private readonly List<string> _writes = [];
+
+    /// <summary>剪贴板写入快照。Clipboard write snapshot.</summary>
+    internal IReadOnlyList<string> Writes
+    {
+        get
+        {
+            lock (_writes)
+            {
+                return [.. _writes];
+            }
+        }
+    }
+
     /// <inheritdoc />
-    public Task SetTextAsync(string text, CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task SetTextAsync(string text, CancellationToken cancellationToken)
+    {
+        lock (_writes)
+        {
+            _writes.Add(text);
+        }
+
+        return Task.CompletedTask;
+    }
 
     /// <inheritdoc />
     public Task<string?> GetTextAsync(CancellationToken cancellationToken) => Task.FromResult<string?>(null);

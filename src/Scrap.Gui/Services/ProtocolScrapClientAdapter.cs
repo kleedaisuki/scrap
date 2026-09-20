@@ -128,7 +128,7 @@ internal sealed class ProtocolScrapClientAdapter : IScrapClient
             return new RecordDetails(
                 record.Scope,
                 record.Key,
-                record.Value,
+                record.Values.ToArray(),
                 ToGui(record.Presentation),
                 record.UpdatedAt,
                 record.Revision);
@@ -155,7 +155,7 @@ internal sealed class ProtocolScrapClientAdapter : IScrapClient
             await client.SetRecordAsync(
                 request.Scope,
                 request.Key,
-                request.Value,
+                request.Values,
                 ToProtocol(request.Presentation),
                 request.ExpectedRevision,
                 cancellationToken);
