@@ -143,6 +143,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         CopyValueCommand = new AsyncRelayCommand(
             parameter => CopyDisplayValueAsync(parameter as RecordValueDisplay),
             parameter => !IsBusy && SelectedRecord is not null && parameter is RecordValueDisplay);
+        ActivateValueCommand = new RelayCommand(
+            parameter => ActivateValue(parameter as RecordValueDisplay),
+            parameter => SelectedRecord is not null && parameter is RecordValueDisplay);
         AddEditorValueCommand = new RelayCommand(
             AddEditorValue,
             () => !IsBusy && IsRecordEditorOpen && EditorValues.Count < MaxRecordValues);
@@ -159,6 +162,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         ToggleRevealValueCommand = new RelayCommand(
             parameter => ToggleRevealValue(parameter as RecordValueDisplay),
             parameter => !IsBusy && SelectedRecord?.Presentation == RecordPresentation.Masked && parameter is RecordValueDisplay);
+        HideAllRevealedValuesCommand = new RelayCommand(CancelReveal, () => !IsBusy && IsRevealed);
         CloseModalCommand = new RelayCommand(CloseModals, () => !IsBusy && HasOpenModal);
         DismissErrorCommand = new RelayCommand(ClearError);
     }
@@ -763,6 +767,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     /// <summary>复制显式选定的单个 value。Copies one explicitly selected value.</summary>
     public ICommand CopyValueCommand { get; }
 
+    /// <summary>将聚焦的 value 设为工作区快捷键目标。Makes the focused value the workspace-shortcut target.</summary>
+    public ICommand ActivateValueCommand { get; }
+
     /// <summary>在末尾添加 value。Appends a value.</summary>
     public ICommand AddEditorValueCommand { get; }
 
@@ -780,6 +787,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     /// <summary>切换单个 value 的短暂显示。Toggles temporary reveal for one value.</summary>
     public ICommand ToggleRevealValueCommand { get; }
+
+    /// <summary>立即重新遮罩所有已显示的 value。Immediately re-masks every revealed value.</summary>
+    public ICommand HideAllRevealedValuesCommand { get; }
 
     /// <summary>取消编辑或确认，不提交。Cancels an editor or confirmation without committing.</summary>
     public ICommand CloseModalCommand { get; }
@@ -1441,6 +1451,14 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         await CopyValueAsync(display.RawValue);
     }
 
+    private void ActivateValue(RecordValueDisplay? display)
+    {
+        if (display is not null)
+        {
+            _activeValueIndex = display.Position - 1;
+        }
+    }
+
     private async Task CopyValueAsync(string? value)
     {
         if (SelectedRecord is not { } record || value is null)
@@ -2044,12 +2062,14 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             ConfirmDeleteRecordCommand,
             CopyCommand,
             CopyValueCommand,
+            ActivateValueCommand,
             AddEditorValueCommand,
             RemoveEditorValueCommand,
             MoveEditorValueUpCommand,
             MoveEditorValueDownCommand,
             ToggleRevealCommand,
             ToggleRevealValueCommand,
+            HideAllRevealedValuesCommand,
             CloseModalCommand,
         })
         {

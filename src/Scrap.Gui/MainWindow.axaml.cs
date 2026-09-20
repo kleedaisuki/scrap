@@ -7,6 +7,7 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Scrap.Gui.Abstractions;
+using Scrap.Gui.Models;
 using Scrap.Gui.Services;
 using Scrap.Gui.ViewModels;
 
@@ -145,7 +146,7 @@ public partial class MainWindow : Window
             }
             else if (ViewModel.IsRevealed)
             {
-                Execute(ViewModel.ToggleRevealCommand);
+                Execute(ViewModel.HideAllRevealedValuesCommand);
                 eventArgs.Handled = true;
             }
 
@@ -268,11 +269,22 @@ public partial class MainWindow : Window
         textBox.SelectAll();
     }
 
-    private static void Execute(System.Windows.Input.ICommand command)
+    private void OnValueActionFocused(object? sender, RoutedEventArgs eventArgs)
     {
-        if (command.CanExecute(null))
+        if (sender is Control { DataContext: RecordValueDisplay display })
         {
-            command.Execute(null);
+            Execute(ViewModel.ActivateValueCommand, display);
+        }
+    }
+
+    private static void Execute(System.Windows.Input.ICommand command)
+        => Execute(command, parameter: null);
+
+    private static void Execute(System.Windows.Input.ICommand command, object? parameter)
+    {
+        if (command.CanExecute(parameter))
+        {
+            command.Execute(parameter);
         }
     }
 }

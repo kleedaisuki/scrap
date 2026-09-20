@@ -455,9 +455,16 @@ public sealed class MainWindowViewModelTests
         Assert.Equal(3, viewModel.DisplayValues.Count);
         Assert.All(viewModel.DisplayValues, value => Assert.Equal("••••••••••••", value.Text));
 
+        viewModel.ToggleRevealValueCommand.Execute(viewModel.DisplayValues[0]);
         viewModel.ToggleRevealValueCommand.Execute(viewModel.DisplayValues[1]);
 
-        Assert.Equal(["••••••••••••", "", "••••••••••••"], viewModel.DisplayValues.Select(value => value.Text));
+        Assert.Equal(["first", "", "••••••••••••"], viewModel.DisplayValues.Select(value => value.Text));
+        Assert.True(viewModel.IsRevealed);
+
+        viewModel.HideAllRevealedValuesCommand.Execute(null);
+
+        Assert.False(viewModel.IsRevealed);
+        Assert.All(viewModel.DisplayValues, value => Assert.Equal("••••••••••••", value.Text));
     }
 
     /// <summary>
@@ -515,9 +522,10 @@ public sealed class MainWindowViewModelTests
         viewModel.SelectedCandidate = candidate;
         await WaitUntilAsync(() => viewModel.SelectedRecord is not null);
 
-        viewModel.CopyValueCommand.Execute(viewModel.DisplayValues[1]);
-        await WaitUntilAsync(() => clipboard.Writes.Count == 1);
+        viewModel.ActivateValueCommand.Execute(viewModel.DisplayValues[1]);
         viewModel.CopyCommand.Execute(null);
+        await WaitUntilAsync(() => clipboard.Writes.Count == 1);
+        viewModel.CopyValueCommand.Execute(viewModel.DisplayValues[1]);
         await WaitUntilAsync(() => clipboard.Writes.Count == 2);
 
         Assert.Equal(["second", "second"], clipboard.Writes);
