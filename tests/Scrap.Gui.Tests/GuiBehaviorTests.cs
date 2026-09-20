@@ -408,6 +408,7 @@ public sealed class MainWindowViewModelTests
 
         viewModel.MoveEditorValueUpCommand.Execute(viewModel.EditorValues[2]);
         Assert.Equal(["same", "third", "same"], viewModel.EditorValues.Select(value => value.Value));
+        Assert.Equal("Move Value 2 up", viewModel.EditorValues[1].MoveUpAccessibleName);
 
         viewModel.RemoveEditorValueCommand.Execute(viewModel.EditorValues[2]);
         Assert.Equal(2, viewModel.EditorValues.Count);
@@ -460,6 +461,13 @@ public sealed class MainWindowViewModelTests
 
         Assert.Equal(["first", "", "••••••••••••"], viewModel.DisplayValues.Select(value => value.Text));
         Assert.True(viewModel.IsRevealed);
+
+        viewModel.SelectedLanguage = Choice(viewModel.LanguageChoices, AppLanguage.English);
+        var changedProperties = new List<string?>();
+        viewModel.PropertyChanged += (_, eventArgs) => changedProperties.Add(eventArgs.PropertyName);
+        viewModel.SelectedLanguage = Choice(viewModel.LanguageChoices, AppLanguage.SimplifiedChinese);
+        Assert.Contains(nameof(MainWindowViewModel.DisplayValues), changedProperties);
+        Assert.Equal(viewModel.L.Hide, viewModel.DisplayValues[0].RevealButtonText);
 
         viewModel.HideAllRevealedValuesCommand.Execute(null);
 

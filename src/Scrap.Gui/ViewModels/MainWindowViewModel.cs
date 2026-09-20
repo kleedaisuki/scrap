@@ -1926,6 +1926,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         OnPropertyChanged(nameof(RecordEditorTitle));
         OnPropertyChanged(nameof(RecordDeleteMessage));
         OnPropertyChanged(nameof(RevealButtonText));
+        OnPropertyChanged(nameof(DisplayValues));
         OnPropertyChanged(nameof(RecordIdentity));
         OnPropertyChanged(nameof(UpdatedText));
     }

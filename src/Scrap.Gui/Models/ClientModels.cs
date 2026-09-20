@@ -195,12 +195,20 @@ public sealed class RecordValueEditor : Infrastructure.ViewModelBase
             if (SetProperty(ref _position, value))
             {
                 OnPropertyChanged(nameof(AccessibleName));
+                OnPropertyChanged(nameof(MoveUpAccessibleName));
+                OnPropertyChanged(nameof(MoveDownAccessibleName));
             }
         }
     }
 
     /// <summary>可编程的 value 名称。Programmatic value name.</summary>
     public string AccessibleName => $"Value {Position}";
+
+    /// <summary>带 value 编号的上移辅助名称。Move-up accessible name including the value number.</summary>
+    public string MoveUpAccessibleName => $"Move Value {Position} up";
+
+    /// <summary>带 value 编号的下移辅助名称。Move-down accessible name including the value number.</summary>
+    public string MoveDownAccessibleName => $"Move Value {Position} down";
 
     /// <summary>在集合变更后更新一基位置。Updates the one-based position after a collection change.</summary>
     internal void SetPosition(int position) => Position = position;
