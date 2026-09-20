@@ -1616,7 +1616,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     private void AddEditorValueItem(string value)
     {
-        var item = new RecordValueEditor(value, EditorValues.Count + 1);
+        var item = new RecordValueEditor(
+            value,
+            EditorValues.Count + 1,
+            position => L.ValueNumber(position),
+            position => L.MoveValueNumberUp(position),
+            position => L.MoveValueNumberDown(position));
         item.PropertyChanged += OnEditorValueChanged;
         EditorValues.Add(item);
     }
@@ -1913,6 +1918,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     private void NotifyLocalizedProperties()
     {
+        foreach (RecordValueEditor item in EditorValues)
+        {
+            item.RefreshAccessibleNames();
+        }
+
         ScopeEditorTitle = _isRenamingScope ? L.RenameScopeTitle : L.CreateScopeTitle;
         ClearError();
         ToastMessage = null;

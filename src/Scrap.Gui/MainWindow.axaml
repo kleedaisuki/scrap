@@ -1,5 +1,5 @@
 <?xml version="1.0" ?>
-<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:vm="using:Scrap.Gui.ViewModels" xmlns:models="using:Scrap.Gui.Models" x:Class="Scrap.Gui.MainWindow" x:DataType="vm:MainWindowViewModel" mc:Ignorable="d" Width="1180" Height="760" MinWidth="940" MinHeight="620" Icon="avares://Scrap.Gui/Assets/scrap.png" Title="{Binding L.WindowTitle}">
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:vm="using:Scrap.Gui.ViewModels" xmlns:models="using:Scrap.Gui.Models" x:Class="Scrap.Gui.MainWindow" x:DataType="vm:MainWindowViewModel" mc:Ignorable="d" Width="1180" Height="760" MinWidth="1180" MinHeight="720" Icon="avares://Scrap.Gui/Assets/scrap.png" Title="{Binding L.WindowTitle}">
   <Grid RowDefinitions="Auto,Auto,*">
     <Border Grid.Row="0" IsEnabled="{Binding IsWorkspaceEnabled}" Background="{DynamicResource RaisedBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="24,14">
       <Grid ColumnDefinitions="Auto,24,*,Auto" VerticalAlignment="Center">
@@ -228,7 +228,7 @@
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="models:RecordValueEditor">
                   <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,10">
-                    <TextBlock Text="{Binding Position, StringFormat='Value {0}'}" Classes="muted" FontSize="11" Margin="0,12,10,0"/>
+                    <TextBlock Text="{Binding AccessibleName}" Classes="muted" FontSize="11" Margin="0,12,10,0"/>
                     <TextBox Grid.Column="1" Text="{Binding Value}" AcceptsReturn="True" TextWrapping="Wrap" PasswordChar="●" RevealPassword="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).EditorValueVisible}" MinHeight="92" FontFamily="IBM Plex Mono,Cascadia Mono,Consolas,monospace" FontSize="15" Padding="12,10,20,10" ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="{Binding AccessibleName}"/>
                     <Button Grid.Column="2" Content="↑" Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).MoveEditorValueUpCommand}" CommandParameter="{Binding}" Margin="8,0,0,0" VerticalAlignment="Top" AutomationProperties.Name="{Binding MoveUpAccessibleName}"/>
                     <Button Grid.Column="3" Content="↓" Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).MoveEditorValueDownCommand}" CommandParameter="{Binding}" Margin="4,0,0,0" VerticalAlignment="Top" AutomationProperties.Name="{Binding MoveDownAccessibleName}"/>

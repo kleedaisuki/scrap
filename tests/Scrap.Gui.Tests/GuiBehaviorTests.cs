@@ -51,6 +51,28 @@ public sealed class UserPreferenceStoreTests
 }
 
 /// <summary>
+/// 验证桌面组合布局的最小可用窗口合同。
+/// Verifies the minimum usable window contract of the desktop composition.
+/// </summary>
+public sealed class DesktopLayoutContractTests
+{
+    /// <summary>
+    /// 最小窗口必须容纳顶部命令和完整记录编辑器，不得回退到已证实会重叠/裁切的 940×620。
+    /// The minimum window must fit header commands and the complete record editor, never regressing to the proven-overlapping 940×620 size.
+    /// </summary>
+    [Fact]
+    public void MainWindowMinimumSizePreservesTheValidatedComposition()
+    {
+        string repository = TestDirectory.FindRepositoryRoot(AppContext.BaseDirectory)
+            ?? throw new DirectoryNotFoundException("Could not locate the repository root.");
+        string xaml = File.ReadAllText(Path.Combine(repository, "src", "Scrap.Gui", "MainWindow.axaml"));
+
+        Assert.Contains("MinWidth=\"1180\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("MinHeight=\"720\"", xaml, StringComparison.Ordinal);
+    }
+}
+
+/// <summary>
 /// 验证主窗口状态机中本地化、主题、编辑器与跨 scope 搜索行为。
 /// Verifies localization, theme, editor, and cross-scope search behavior in the main-window state machine.
 /// </summary>
@@ -408,7 +430,14 @@ public sealed class MainWindowViewModelTests
 
         viewModel.MoveEditorValueUpCommand.Execute(viewModel.EditorValues[2]);
         Assert.Equal(["same", "third", "same"], viewModel.EditorValues.Select(value => value.Value));
+        viewModel.SelectedLanguage = Choice(viewModel.LanguageChoices, AppLanguage.English);
         Assert.Equal("Move Value 2 up", viewModel.EditorValues[1].MoveUpAccessibleName);
+        var accessibilityChanges = new List<string?>();
+        viewModel.EditorValues[1].PropertyChanged += (_, eventArgs) => accessibilityChanges.Add(eventArgs.PropertyName);
+        viewModel.SelectedLanguage = Choice(viewModel.LanguageChoices, AppLanguage.SimplifiedChinese);
+        Assert.Equal("值 2", viewModel.EditorValues[1].AccessibleName);
+        Assert.Equal("将值 2 上移", viewModel.EditorValues[1].MoveUpAccessibleName);
+        Assert.Contains(nameof(RecordValueEditor.MoveUpAccessibleName), accessibilityChanges);
 
         viewModel.RemoveEditorValueCommand.Execute(viewModel.EditorValues[2]);
         Assert.Equal(2, viewModel.EditorValues.Count);
@@ -765,7 +794,7 @@ internal sealed class TestDirectory : IDisposable
         }
     }
 
-    private static string? FindRepositoryRoot(string start)
+    internal static string? FindRepositoryRoot(string start)
     {
         for (DirectoryInfo? directory = new(start); directory is not null; directory = directory.Parent)
         {

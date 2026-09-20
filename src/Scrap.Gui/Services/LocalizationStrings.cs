@@ -107,6 +107,9 @@ public sealed class LocalizationStrings
     public string InvalidSearch => Pick("搜索表达式无效。请检查正则表达式或查询条件。", "The search expression is invalid. Check the regular expression or query options.");
     public string TooManyValues(int maximum) => Pick($"一条记录最多包含 {maximum} 个值。", $"A record can contain at most {maximum} values.");
     public string ValuesTooLarge(int maximumKiB) => Pick($"所有值的 UTF-8 总大小不能超过 {maximumKiB} KiB。", $"All values together must not exceed {maximumKiB} KiB of UTF-8 text.");
+    public string ValueNumber(int position) => Pick($"值 {position}", $"Value {position}");
+    public string MoveValueNumberUp(int position) => Pick($"将值 {position} 上移", $"Move Value {position} up");
+    public string MoveValueNumberDown(int position) => Pick($"将值 {position} 下移", $"Move Value {position} down");
 
     public string ErrorTitle(ScrapClientErrorKind kind) => kind switch
     {

@@ -178,12 +178,23 @@ public sealed class RecordValueEditor : Infrastructure.ViewModelBase
 {
     private string _value;
     private int _position;
+    private readonly Func<int, string> _valueName;
+    private readonly Func<int, string> _moveUpName;
+    private readonly Func<int, string> _moveDownName;
 
     /// <summary>创建 value 编辑项。Creates a value editor item.</summary>
-    public RecordValueEditor(string value, int position = 1)
+    internal RecordValueEditor(
+        string value,
+        int position,
+        Func<int, string> valueName,
+        Func<int, string> moveUpName,
+        Func<int, string> moveDownName)
     {
         _value = value;
         _position = position;
+        _valueName = valueName;
+        _moveUpName = moveUpName;
+        _moveDownName = moveDownName;
     }
 
     /// <summary>面向用户的一基位置。User-facing one-based position.</summary>
@@ -202,16 +213,24 @@ public sealed class RecordValueEditor : Infrastructure.ViewModelBase
     }
 
     /// <summary>可编程的 value 名称。Programmatic value name.</summary>
-    public string AccessibleName => $"Value {Position}";
+    public string AccessibleName => _valueName(Position);
 
     /// <summary>带 value 编号的上移辅助名称。Move-up accessible name including the value number.</summary>
-    public string MoveUpAccessibleName => $"Move Value {Position} up";
+    public string MoveUpAccessibleName => _moveUpName(Position);
 
     /// <summary>带 value 编号的下移辅助名称。Move-down accessible name including the value number.</summary>
-    public string MoveDownAccessibleName => $"Move Value {Position} down";
+    public string MoveDownAccessibleName => _moveDownName(Position);
 
     /// <summary>在集合变更后更新一基位置。Updates the one-based position after a collection change.</summary>
     internal void SetPosition(int position) => Position = position;
+
+    /// <summary>语言变更后刷新本地化辅助名称。Refreshes localized accessible names after a language change.</summary>
+    internal void RefreshAccessibleNames()
+    {
+        OnPropertyChanged(nameof(AccessibleName));
+        OnPropertyChanged(nameof(MoveUpAccessibleName));
+        OnPropertyChanged(nameof(MoveDownAccessibleName));
+    }
 
     /// <summary>完整的 UTF-8 文本。Complete UTF-8 text.</summary>
     public string Value
