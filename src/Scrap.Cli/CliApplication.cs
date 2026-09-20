@@ -16,6 +16,7 @@ public static class CliApplication
     private const string NoColor = "--no-color";
     private const string Json = "--json";
     private const int MaximumValueUtf8Bytes = 64 * 1024;
+    private const int MaximumValueCount = 32;
     private static readonly string[] SearchModeOptions = ["--exact", "--fuzzy", "--regex"];
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
 
@@ -166,16 +167,29 @@ public static class CliApplication
         ICliEnvironment environment,
         CancellationToken cancellationToken)
     {
-        var line = CommandLine.Parse(args, "--raw-stdin", "--masked", "--plain", NoColor);
+        var line = CommandLine.Parse(args, "--raw-stdin", "--masked", "--plain", Json, NoColor);
         line.RequireOperands(2);
         if (line.Has("--masked") && line.Has("--plain"))
         {
             throw new CliUsageException("--masked and --plain are mutually exclusive.");
         }
 
-        var value = await ReadValueAsync(environment, line.Has("--raw-stdin"), cancellationToken).ConfigureAwait(false);
+        if (line.Has("--raw-stdin") && line.Has(Json))
+        {
+            throw new CliUsageException("--raw-stdin and --json are mutually exclusive.");
+        }
+
         var presentation = line.Has("--plain") ? RecordPresentation.Plain : RecordPresentation.Masked;
-        await client.SetRecordAsync(line.Operands[0], line.Operands[1], value, presentation, cancellationToken).ConfigureAwait(false);
+        if (line.Has(Json))
+        {
+            IReadOnlyList<string> values = await ReadValuesJsonAsync(environment, cancellationToken).ConfigureAwait(false);
+            await client.SetRecordAsync(line.Operands[0], line.Operands[1], values, presentation, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            var value = await ReadValueAsync(environment, line.Has("--raw-stdin"), cancellationToken).ConfigureAwait(false);
+            await client.SetRecordAsync(line.Operands[0], line.Operands[1], value, presentation, cancellationToken).ConfigureAwait(false);
+        }
         return ExitCodes.Success;
     }
 
@@ -185,12 +199,20 @@ public static class CliApplication
         ICliEnvironment environment,
         CancellationToken cancellationToken)
     {
-        var line = CommandLine.Parse(args, "--clipboard", NoColor);
+        var line = CommandLine.Parse(args, "--clipboard", Json, NoColor);
         line.RequireOperands(2);
+        if (line.Has("--clipboard") && line.Has(Json))
+        {
+            throw new CliUsageException("--clipboard and --json are mutually exclusive.");
+        }
         var result = await client.GetRecordAsync(line.Operands[0], line.Operands[1], cancellationToken).ConfigureAwait(false);
         if (line.Has("--clipboard"))
         {
             await environment.SetClipboardTextAsync(result.Value, cancellationToken).ConfigureAwait(false);
+        }
+        else if (line.Has(Json))
+        {
+            await WriteJsonAsync(environment.Output, result.Values).ConfigureAwait(false);
         }
         else
         {
@@ -199,6 +221,48 @@ public static class CliApplication
         }
 
         return ExitCodes.Success;
+    }
+
+    private static async Task<IReadOnlyList<string>> ReadValuesJsonAsync(
+        ICliEnvironment environment,
+        CancellationToken cancellationToken)
+    {
+        if (!environment.IsInputRedirected)
+        {
+            throw new CliUsageException("--json requires redirected standard input.");
+        }
+
+        var input = await Utf8Text.ReadBoundedAsync(
+            environment.Input,
+            Scrap.Protocol.ProtocolConstants.DefaultMaxFrameSize,
+            cancellationToken).ConfigureAwait(false);
+        string[]? values;
+        try
+        {
+            values = JsonSerializer.Deserialize<string[]>(input.Value, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            throw new CliValidationException("Standard input must be a JSON array of strings.");
+        }
+
+        if (values is null || values.Length is 0 or > MaximumValueCount)
+        {
+            throw new CliValidationException($"The JSON array must contain 1 to {MaximumValueCount} values.");
+        }
+
+        var aggregateBytes = 0;
+        foreach (string value in values)
+        {
+            Utf8Text.Validate(value, MaximumValueUtf8Bytes);
+            aggregateBytes += Encoding.UTF8.GetByteCount(value);
+            if (aggregateBytes > MaximumValueUtf8Bytes)
+            {
+                throw new CliValidationException($"Values must total at most {MaximumValueUtf8Bytes} UTF-8 bytes.");
+            }
+        }
+
+        return values;
     }
 
     private static async Task<int> RunRenameAsync(string[] args, IScrapClient client, CancellationToken cancellationToken)
@@ -463,8 +527,8 @@ public static class CliApplication
           scrap scope delete <scope> [--recursive]
 
         Record commands:
-          scrap set <scope> <key> [--raw-stdin] [--masked|--plain]
-          scrap get <scope> <key> [--clipboard]
+          scrap set <scope> <key> [--raw-stdin|--json] [--masked|--plain]
+          scrap get <scope> <key> [--clipboard|--json]
           scrap rename <scope> <old-key> <new-key>
           scrap delete <scope> <key>
           scrap list <scope> [--json]

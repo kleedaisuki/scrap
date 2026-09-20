@@ -28,6 +28,25 @@ public sealed class DaemonEndToEndTests
     private const string ReplacementSecret = "SCRAP-E2E-PLAINTEXT-f07dd44822574bdf92ae6279f047a91d-机密-🌙\r\n终章";
     private static readonly string[] FirstPageKeys = ["A", "a", "api"];
 
+    /// <summary>typed client 的整列表 API 穿过真实 IPC，并由一次 revision/CAS 原子保护。 / The typed client's whole-list API crosses real IPC and is atomically guarded by one revision/CAS.</summary>
+    [Fact]
+    public async Task MultiValueRoundTripsThroughTypedClientAsync()
+    {
+        await using DaemonTestContext context = await DaemonTestContext.StartAsync();
+        _ = await context.Client.CreateScopeAsync("multi");
+        RecordSetResult created = await context.Client.SetRecordAsync(
+            "multi", "key", ["first", "", "first", "tail"], RecordPresentation.Plain);
+        RecordDto initial = (await context.Client.GetRecordAsync("multi", "key")).Record;
+        Assert.Equal(["first", "", "first", "tail"], initial.Values);
+        Assert.Equal("first", initial.Value);
+
+        _ = await context.Client.SetRecordAsync(
+            "multi", "key", ["replacement", "last"], RecordPresentation.Masked, created.Record.Revision);
+        RecordDto replaced = (await context.Client.GetRecordAsync("multi", "key")).Record;
+        Assert.Equal(["replacement", "last"], replaced.Values);
+        Assert.Equal(created.Record.Revision + 1, replaced.Revision);
+    }
+
     /// <summary>
     /// 主密钥 provider 失效只会禁用业务操作，不会杀死 daemon 的控制面。
     /// / A failed master-key provider disables business operations without killing the daemon control plane.

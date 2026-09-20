@@ -67,11 +67,32 @@ internal sealed class ProtocolScrapClientAdapter : IScrapClient, IAsyncDisposabl
         }, cancellationToken);
 
     /// <inheritdoc />
+    public Task SetRecordAsync(
+        string scope,
+        string key,
+        IReadOnlyList<string> values,
+        RecordPresentation presentation,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(async clientValue =>
+        {
+            _ = await clientValue.SetRecordAsync(
+                scope,
+                key,
+                values,
+                ToProtocol(presentation),
+                expectedRevision: null,
+                cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
+
+    /// <inheritdoc />
     public Task<RecordValue> GetRecordAsync(string scope, string key, CancellationToken cancellationToken) =>
         ExecuteAsync(async value =>
         {
             var result = await value.GetRecordAsync(scope, key, cancellationToken).ConfigureAwait(false);
-            return new RecordValue(result.Record.Value, FromProtocol(result.Record.Presentation));
+            return new RecordValue(result.Record.Value, FromProtocol(result.Record.Presentation))
+            {
+                Values = result.Record.Values,
+            };
         }, cancellationToken);
 
     /// <inheritdoc />

@@ -17,6 +17,25 @@ namespace Scrap.Daemon.Tests;
 /// </summary>
 public sealed class DaemonRequestDispatcherTests
 {
+    /// <summary>daemon 接受 v1 请求并回显 v1，同时公布 v1..v2 范围。 / The daemon accepts and echoes v1 requests while advertising the v1..v2 range.</summary>
+    [Fact]
+    public async Task DispatchAsyncAcceptsAndEchoesLegacyProtocolVersion()
+    {
+        var operations = new FakeDaemonOperations();
+        using var coordinator = new RequestExecutionCoordinator(new DaemonRuntimeState());
+        var dispatcher = CreateDispatcher(operations, coordinator);
+        ProtocolRequest request = ProtocolRequest.Create(
+            "legacy",
+            ProtocolMethods.DaemonVersion,
+            new DaemonVersionParams(),
+            ProtocolConstants.MinimumSupportedVersion);
+
+        DaemonDispatchResult dispatch = await dispatcher.DispatchAsync(request, default);
+        DaemonVersionResult result = dispatch.Response.GetResult<DaemonVersionResult>();
+        Assert.Equal(ProtocolConstants.MinimumSupportedVersion, dispatch.Response.ProtocolVersion);
+        Assert.Equal(ProtocolConstants.MinimumSupportedVersion, result.MinProtocolVersion);
+        Assert.Equal(ProtocolConstants.CurrentVersion, result.MaxProtocolVersion);
+    }
     private const string RequestId = "dispatcher-test-request";
     private const string ApplicationVersion = "9.8.7-test";
 
@@ -453,7 +472,7 @@ public sealed class DaemonRequestDispatcherTests
     private static DaemonVersionResult AssertVersionResult(DaemonVersionResult result)
     {
         Assert.Equal(ApplicationVersion, result.ApplicationVersion);
-        Assert.Equal(ProtocolConstants.CurrentVersion, result.MinProtocolVersion);
+        Assert.Equal(ProtocolConstants.MinimumSupportedVersion, result.MinProtocolVersion);
         Assert.Equal(ProtocolConstants.CurrentVersion, result.MaxProtocolVersion);
         return result;
     }

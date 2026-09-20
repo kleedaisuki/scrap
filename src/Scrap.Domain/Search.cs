@@ -300,6 +300,11 @@ public static class RecordSearch
         SearchRequest request,
         CancellationToken cancellationToken)
     {
+        if (request.Query.Length == 0)
+        {
+            return DomainResult.Success<IReadOnlyList<SearchMatch>>([]);
+        }
+
         var elapsed = Stopwatch.StartNew();
         Regex regex;
         try

@@ -264,7 +264,7 @@ public sealed class ScrapClient : IAsyncDisposable
         CancellationToken cancellationToken = default) =>
         SendAsync<RecordGetParams, RecordGetResult>(ProtocolMethods.RecordGet, new(scope, key), cancellationToken);
 
-    /// <summary>新增或整值替换 record。 / Creates or replaces an entire record value.</summary>
+    /// <summary>使用旧标量 API 新增 record，或只替换现有 record 的索引 0。 / Creates a record through the legacy scalar API, or replaces only index zero of an existing record.</summary>
     /// <param name="scope">精确 scope 名称。 / Exact scope name.</param>
     /// <param name="key">大小写敏感的精确 key。 / Exact case-sensitive key.</param>
     /// <param name="value">UTF-8 文本 value；client 不记录它。 / UTF-8 text value, which the client never logs.</param>
@@ -283,6 +283,29 @@ public sealed class ScrapClient : IAsyncDisposable
             ProtocolMethods.RecordSet,
             new(scope, key, value, presentation, expectedRevision),
             cancellationToken);
+
+    /// <summary>新增或原子替换 record 的完整有序 value 列表。 / Creates or atomically replaces a record's complete ordered value list.</summary>
+    /// <param name="scope">精确 scope 名称。 / Exact scope name.</param>
+    /// <param name="key">大小写敏感的精确 key。 / Exact case-sensitive key.</param>
+    /// <param name="values">非空有序列表；保留重复项与空字符串。 / Non-empty ordered list; duplicates and empty strings are preserved.</param>
+    /// <param name="presentation">应用于所有 value 的展示策略。 / Presentation policy applied to every value.</param>
+    /// <param name="expectedRevision">完整列表写入的可选 revision 前置条件。 / Optional revision precondition for the whole-list write.</param>
+    /// <param name="cancellationToken">取消请求的标记。 / Token that cancels the request.</param>
+    /// <returns>不回显 value 的写入结果。 / A write result that does not echo values.</returns>
+    public Task<RecordSetResult> SetRecordAsync(
+        string scope,
+        string key,
+        IReadOnlyList<string> values,
+        RecordPresentation presentation = RecordPresentation.Masked,
+        long? expectedRevision = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        return SendAsync<RecordSetParams, RecordSetResult>(
+            ProtocolMethods.RecordSet,
+            new RecordSetParams(scope, key, null, presentation, expectedRevision) { Values = values },
+            cancellationToken);
+    }
 
     /// <summary>在 daemon 内原子重命名并重新加密 record。 / Atomically renames and re-encrypts a record in the daemon.</summary>
     /// <param name="scope">精确 scope 名称。 / Exact scope name.</param>
@@ -526,7 +549,8 @@ public sealed class ScrapClient : IAsyncDisposable
         catch (ProtocolException exception) when (
             exception.ErrorCode == ProtocolErrorCodes.ProtocolVersionUnsupported)
         {
-            throw new ScrapProtocolVersionException(ProtocolConstants.CurrentVersion, exception);
+            await ReplaceLegacyDaemonAsync(stream, maxFrameSize, cancellationToken).ConfigureAwait(false);
+            throw new IOException("A legacy daemon was stopped and will be replaced.", exception);
         }
 
         if (version.MinProtocolVersion <= 0 || version.MaxProtocolVersion < version.MinProtocolVersion)
@@ -546,17 +570,48 @@ public sealed class ScrapClient : IAsyncDisposable
         }
     }
 
+    private static async ValueTask ReplaceLegacyDaemonAsync(
+        Stream stream,
+        int maxFrameSize,
+        CancellationToken cancellationToken)
+    {
+        DaemonVersionResult legacy = await ExchangeAsync<DaemonVersionParams, DaemonVersionResult>(
+            stream,
+            ProtocolMethods.DaemonVersion,
+            new(),
+            maxFrameSize,
+            cancellationToken,
+            ProtocolConstants.MinimumSupportedVersion).ConfigureAwait(false);
+        if (legacy.MinProtocolVersion > ProtocolConstants.MinimumSupportedVersion ||
+            legacy.MaxProtocolVersion < ProtocolConstants.MinimumSupportedVersion)
+        {
+            throw new ScrapProtocolVersionException(
+                ProtocolConstants.CurrentVersion,
+                legacy.MinProtocolVersion,
+                legacy.MaxProtocolVersion);
+        }
+
+        _ = await ExchangeAsync<DaemonShutdownParams, DaemonShutdownResult>(
+            stream,
+            ProtocolMethods.DaemonShutdown,
+            new(),
+            maxFrameSize,
+            cancellationToken,
+            ProtocolConstants.MinimumSupportedVersion).ConfigureAwait(false);
+    }
+
     private static async ValueTask<TResult> ExchangeAsync<TParams, TResult>(
         Stream stream,
         string method,
         TParams parameters,
         int maxFrameSize,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int protocolVersion = ProtocolConstants.CurrentVersion)
         where TParams : notnull
         where TResult : notnull
     {
         string requestId = Guid.CreateVersion7().ToString("N");
-        ProtocolRequest request = ProtocolRequest.Create(requestId, method, parameters);
+        ProtocolRequest request = ProtocolRequest.Create(requestId, method, parameters, protocolVersion);
         await LengthPrefixedJsonFraming.WriteAsync(
             stream,
             request,
@@ -576,7 +631,7 @@ public sealed class ScrapClient : IAsyncDisposable
                 "The daemon response request ID does not match the request.");
         }
 
-        if (response.ProtocolVersion != ProtocolConstants.CurrentVersion)
+        if (response.ProtocolVersion != protocolVersion)
         {
             throw new ProtocolException(
                 ProtocolErrorCodes.ProtocolVersionUnsupported,

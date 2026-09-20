@@ -108,17 +108,17 @@ internal sealed class DaemonRequestDispatcher
         try
         {
             request.EnsureValid();
-            if (request.ProtocolVersion != ProtocolConstants.CurrentVersion)
+            if (request.ProtocolVersion is < ProtocolConstants.MinimumSupportedVersion or > ProtocolConstants.CurrentVersion)
             {
                 outcome = ProtocolErrorCodes.ProtocolVersionUnsupported;
-                return Failure(request.RequestId, ProtocolErrorCodes.ProtocolVersionUnsupported, "Protocol version is not supported.");
+                return Failure(request.RequestId, ProtocolErrorCodes.ProtocolVersionUnsupported, "Protocol version is not supported.", request.ProtocolVersion);
             }
 
             if (request.Method == ProtocolMethods.DaemonShutdown)
             {
                 Deserialize<DaemonShutdownParams>(request);
                 return new(
-                    ProtocolResponse.Success(request.RequestId, new DaemonShutdownResult()),
+                    ProtocolResponse.Success(request.RequestId, new DaemonShutdownResult(), request.ProtocolVersion),
                     RequestsShutdown: true);
             }
 
@@ -136,7 +136,7 @@ internal sealed class DaemonRequestDispatcher
                     token => ExecuteAsync(request, token),
                     cancellationToken).ConfigureAwait(false);
 
-            return new(ProtocolResponse.Success(request.RequestId, result));
+            return new(ProtocolResponse.Success(request.RequestId, result, request.ProtocolVersion));
         }
         catch (Exception exception) when (TryMapException(exception, out ProtocolError? error))
         {
@@ -147,7 +147,7 @@ internal sealed class DaemonRequestDispatcher
                 error.Code,
                 exception.GetType().Name,
                 null);
-            return new(ProtocolResponse.Failure(SafeRequestId(request.RequestId), error));
+            return new(ProtocolResponse.Failure(SafeRequestId(request.RequestId), error, SupportedResponseVersion(request.ProtocolVersion)));
         }
         finally
         {
@@ -168,7 +168,7 @@ internal sealed class DaemonRequestDispatcher
             request,
             new(
                 applicationVersion,
-                ProtocolConstants.CurrentVersion,
+                ProtocolConstants.MinimumSupportedVersion,
                 ProtocolConstants.CurrentVersion))),
         ProtocolMethods.ScopeList => BoxAsync(operations.ListScopesAsync(
             Deserialize<ScopeListParams>(request),
@@ -228,8 +228,13 @@ internal sealed class DaemonRequestDispatcher
         return operation();
     }
 
-    private static DaemonDispatchResult Failure(string requestId, string code, string message) =>
-        new(ProtocolResponse.Failure(SafeRequestId(requestId), new ProtocolError(code, message)));
+    private static DaemonDispatchResult Failure(string requestId, string code, string message, int protocolVersion) =>
+        new(ProtocolResponse.Failure(SafeRequestId(requestId), new ProtocolError(code, message), SupportedResponseVersion(protocolVersion)));
+
+    private static int SupportedResponseVersion(int requested) =>
+        requested is >= ProtocolConstants.MinimumSupportedVersion and <= ProtocolConstants.CurrentVersion
+            ? requested
+            : ProtocolConstants.CurrentVersion;
 
     private static string SafeRequestId(string? requestId) => string.IsNullOrEmpty(requestId) ? "invalid" : requestId;
 

@@ -3,6 +3,14 @@ namespace Scrap.Domain.Tests;
 /// <summary>验证 exact、fuzzy 与 regex 搜索的契约。 / Verifies exact, fuzzy, and regex search contracts.</summary>
 public sealed class SearchTests
 {
+    /// <summary>空正则不匹配任何 record；只有 fuzzy 空查询可列出候选。 / An empty regex matches no records; only an empty fuzzy query may list candidates.</summary>
+    [Fact]
+    public void EmptyRegexReturnsNoMatches()
+    {
+        SearchCandidate[] candidates = [new(ScopeName.Create("scope"), RecordKey.Create("key"))];
+        var request = SearchRequest.TryCreate([], string.Empty, SearchMode.Regex, CaseSensitivity.Insensitive, 100).Value;
+        Assert.Empty(RecordSearch.Search(candidates, request).Value);
+    }
     /// <summary>验证请求默认值、字节上限、limit 与枚举不变量。 / Verifies request defaults, byte limits, limit, and enum invariants.</summary>
     [Fact]
     public void SearchRequestEnforcesBoundariesAndDefaults()

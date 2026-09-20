@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Scrap.Crypto;
 using Scrap.Platform.Paths;
 using Scrap.Platform.Secrets;
 using Scrap.Protocol;
@@ -20,6 +21,53 @@ public sealed class SqliteDaemonOperationsIntegrationTests
 {
     private static readonly string[] CaseSensitiveScopeOrder = ["Vault", "vault"];
     private static readonly string[] FirstKeysetPage = ["A", "a"];
+
+    /// <summary>整列表写入保留顺序/重复/空项，旧标量写入只替换索引 0。 / Whole-list writes preserve order, duplicates, and empty items; legacy scalar writes replace index zero only.</summary>
+    [Fact]
+    public async Task MultiValueRoundTripAndLegacyScalarUpdatePreservesTailAsync()
+    {
+        using var context = await OperationsContext.CreateAsync();
+        await context.Operations.CreateScopeAsync(new("multi"), default);
+        RecordSetResult created = await context.Operations.SetRecordAsync(
+            new RecordSetParams("multi", "key", null) { Values = ["first", "", "first", "tail"] },
+            default);
+
+        RecordDto initial = (await context.Operations.GetRecordAsync(new("multi", "key"), default)).Record;
+        Assert.Equal(["first", "", "first", "tail"], initial.Values);
+        Assert.Equal("first", initial.Value);
+
+        await context.Operations.SetRecordAsync(
+            new RecordSetParams("multi", "key", "replacement", ExpectedRevision: created.Record.Revision),
+            default);
+        RecordDto updated = (await context.Operations.GetRecordAsync(new("multi", "key"), default)).Record;
+        Assert.Equal(["replacement", "", "first", "tail"], updated.Values);
+    }
+
+    /// <summary>无标记 v0.2 scalar payload 在重启后可读，并在更新时惰性升级而不迁移 schema。 / An unmarked v0.2 scalar payload remains readable after restart and lazily upgrades on update without a schema migration.</summary>
+    [Fact]
+    public async Task LegacyUnmarkedPayloadSurvivesRestartAndUpdateAsync()
+    {
+        using var context = await OperationsContext.CreateAsync();
+        await context.Operations.CreateScopeAsync(new("legacy"), default);
+        byte[] key = Assert.IsType<byte[]>(context.KeyProvider.ExportKey());
+        using (var encryptor = new AesGcmRecordEncryptor(key))
+        {
+            context.Store.SetRecord("legacy", "key", 0, identity =>
+            {
+                EncryptedRecordValue encrypted = encryptor.Encrypt(
+                    Encoding.UTF8.GetBytes("old scalar"),
+                    new RecordEncryptionContext(identity.SchemaVersion, identity.RecordId, identity.ScopeName, identity.Key));
+                return new ProtectedValue(encrypted.Ciphertext, encrypted.Nonce);
+            });
+        }
+
+        await context.RestartAsync();
+        RecordDto restored = (await context.Operations.GetRecordAsync(new("legacy", "key"), default)).Record;
+        Assert.Equal(["old scalar"], restored.Values);
+        await context.Operations.SetRecordAsync(new("legacy", "key", "new scalar"), default);
+        Assert.Equal(["new scalar"], (await context.Operations.GetRecordAsync(new("legacy", "key"), default)).Record.Values);
+        Assert.Equal(1, context.Store.GetStatus().SchemaVersion);
+    }
 
     /// <summary>UTF-8 的 CJK、emoji 与多行文本能够完整 CRUD。 / UTF-8 CJK, emoji, and multiline text survive complete CRUD.</summary>
     [Fact]
@@ -390,7 +438,7 @@ public sealed class SqliteDaemonOperationsIntegrationTests
         public SqliteStore Store { get; }
 
         /// <summary>真实 daemon operations。 / Real daemon operations.</summary>
-        public SqliteDaemonOperations Operations { get; }
+        public SqliteDaemonOperations Operations { get; private set; }
 
         /// <summary>可控内存 master-key provider。 / Controllable in-memory master-key provider.</summary>
         public MemoryMasterKeyProvider KeyProvider { get; }
@@ -425,6 +473,16 @@ public sealed class SqliteDaemonOperationsIntegrationTests
 
                 throw;
             }
+        }
+
+        /// <summary>使用同一 profile 与 master key 重启 operations owner。 / Restarts the operations owner with the same profile and master key.</summary>
+        public async Task RestartAsync()
+        {
+            Operations.Dispose();
+            var state = new DaemonInitializationState();
+            Operations = new SqliteDaemonOperations(Store, KeyProvider, Paths, state, TimeProvider.System);
+            await Operations.InitializeAsync(default);
+            state.SetReady();
         }
 
         /// <inheritdoc />

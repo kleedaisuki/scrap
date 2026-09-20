@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using System.Text;
 using System.Diagnostics;
 using Scrap.Crypto;
 using Scrap.Domain;
@@ -24,7 +23,6 @@ namespace Scrap.Daemon;
 /// </summary>
 internal sealed class SqliteDaemonOperations : IDaemonOperations, IDisposable
 {
-    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private readonly SqliteStore store;
     private readonly IMasterKeyProvider masterKeyProvider;
     private readonly ScrapPathLayout paths;
@@ -159,11 +157,30 @@ internal sealed class SqliteDaemonOperations : IDaemonOperations, IDisposable
     public Task<RecordSetResult> SetRecordAsync(RecordSetParams parameters, CancellationToken cancellationToken)
     {
         EnsureReady(cancellationToken);
+        if (parameters.Values is not null && parameters.Value is not null)
+        {
+            throw new DomainException(new DomainError(
+                DomainErrorCode.InvalidOption,
+                "Specify either value or values, not both.",
+                "values"));
+        }
+
         DateTimeOffset now = timeProvider.GetUtcNow();
+        IReadOnlyList<string>? requestedValues = parameters.Values;
+        if (requestedValues is null)
+        {
+            if (parameters.Value is null)
+            {
+                throw new DomainException(new DomainError(DomainErrorCode.Required, "value or values is required.", "value"));
+            }
+
+            requestedValues = MergeLegacyFirstValue(parameters.Scope, parameters.Key, parameters.Value);
+        }
+
         DomainRecord record = DomainRecord.TryCreate(
             parameters.Scope,
             parameters.Key,
-            parameters.Value,
+            requestedValues,
             ToDomain(parameters.Presentation),
             now).Value;
 
@@ -171,7 +188,7 @@ internal sealed class SqliteDaemonOperations : IDaemonOperations, IDisposable
             record.Scope.Value,
             record.Key.Value,
             now);
-        ProtectedValue protectedValue = Encrypt(record.Value.Value, preparation.Identity);
+        ProtectedValue protectedValue = Encrypt(record.Values, preparation.Identity);
         StoredRecordSetResult written = store.CommitPreparedRecord(
             preparation,
             protectedValue,
@@ -198,11 +215,11 @@ internal sealed class SqliteDaemonOperations : IDaemonOperations, IDisposable
         byte[] plaintext = Decrypt(source);
         try
         {
-            string value = StrictUtf8.GetString(plaintext);
+            IReadOnlyList<string> values = RecordValuesPayloadCodec.Decode(plaintext);
             DomainRecord record = RestoreRecord(
                 parameters.Scope,
                 parameters.Key,
-                value,
+                values,
                 ToDomain(source.Presentation),
                 source.CreatedAt,
                 source.UpdatedAt);
@@ -301,22 +318,25 @@ internal sealed class SqliteDaemonOperations : IDaemonOperations, IDisposable
         byte[] plaintext = Decrypt(stored);
         try
         {
-            string value = StrictUtf8.GetString(plaintext);
+            IReadOnlyList<string> values = RecordValuesPayloadCodec.Decode(plaintext);
             DomainRecord record = RestoreRecord(
                 stored.Identity.ScopeName,
                 stored.Identity.Key,
-                value,
+                values,
                 ToDomain(stored.Presentation),
                 stored.CreatedAt,
                 stored.UpdatedAt);
-            return new(
+            return new RecordDto(
                 record.Scope.Value,
                 record.Key.Value,
                 record.Value.Value,
                 ToProtocol(record.Presentation),
                 record.CreatedAt,
                 record.UpdatedAt,
-                stored.Revision);
+                stored.Revision)
+            {
+                Values = record.Values.Select(value => value.Value).ToArray(),
+            };
         }
         finally
         {
@@ -337,12 +357,34 @@ internal sealed class SqliteDaemonOperations : IDaemonOperations, IDisposable
         }
     }
 
-    private ProtectedValue Encrypt(string value, RecordIdentity identity)
+    private ProtectedValue Encrypt(RecordValues values, RecordIdentity identity)
     {
-        byte[] plaintext = StrictUtf8.GetBytes(value);
+        byte[] plaintext = RecordValuesPayloadCodec.Encode(values);
         try
         {
             return Encrypt(plaintext, identity);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(plaintext);
+        }
+    }
+
+    private string[] MergeLegacyFirstValue(string scope, string key, string firstValue)
+    {
+        StoredRecord? existing = store.GetRecord(scope, key);
+        if (existing is null)
+        {
+            return [firstValue];
+        }
+
+        byte[] plaintext = Decrypt(existing);
+        try
+        {
+            IReadOnlyList<string> current = RecordValuesPayloadCodec.Decode(plaintext);
+            var merged = current.ToArray();
+            merged[0] = firstValue;
+            return merged;
         }
         finally
         {
@@ -403,7 +445,7 @@ internal sealed class SqliteDaemonOperations : IDaemonOperations, IDisposable
     private static DomainRecord RestoreRecord(
         string scope,
         string key,
-        string value,
+        IReadOnlyList<string> values,
         DomainPresentation presentation,
         DateTimeOffset createdAt,
         DateTimeOffset updatedAt)
@@ -411,7 +453,7 @@ internal sealed class SqliteDaemonOperations : IDaemonOperations, IDisposable
         DomainResult<DomainRecord> restored = DomainRecord.TryRestore(
             scope,
             key,
-            value,
+            values,
             presentation,
             createdAt,
             updatedAt);

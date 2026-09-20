@@ -179,3 +179,86 @@ public sealed class RecordValue : IEquatable<RecordValue>
     /// <returns>固定遮盖文本。 / Fixed redacted text.</returns>
     public override string ToString() => "[REDACTED]";
 }
+
+/// <summary>
+/// 表示 record 的非空、有序秘密值列表；保留重复项与空字符串。<br/>
+/// Represents a non-empty ordered list of secret record values; duplicates and empty strings are preserved.
+/// </summary>
+public sealed class RecordValues : IReadOnlyList<RecordValue>
+{
+    /// <summary>单个 record 允许的最大 value 数量。 / Maximum number of values in one record.</summary>
+    public const int MaximumCount = 32;
+
+    /// <summary>
+    /// 所有 value 的 UTF-8 字节总上限（64 KiB）；该界限为 JSON framing 留出转义开销。<br/>
+    /// Aggregate UTF-8 byte limit for all values (64 KiB), leaving room for JSON framing expansion.
+    /// </summary>
+    public const int MaximumAggregateUtf8Bytes = 64 * 1024;
+
+    private readonly RecordValue[] values;
+
+    private RecordValues(RecordValue[] values) => this.values = values;
+
+    /// <inheritdoc />
+    public int Count => values.Length;
+
+    /// <inheritdoc />
+    public RecordValue this[int index] => values[index];
+
+    /// <summary>
+    /// 校验并复制输入列表，避免调用方在创建后改变 record 内容。<br/>
+    /// Validates and copies the input list so callers cannot mutate record contents after creation.
+    /// </summary>
+    /// <param name="values">按语义顺序排列的原始文本。 / Raw text in semantic order.</param>
+    /// <returns>不可变列表或首个结构化错误。 / An immutable list or the first structured error.</returns>
+    public static DomainResult<RecordValues> TryCreate(IReadOnlyList<string>? values)
+    {
+        if (values is null || values.Count == 0)
+        {
+            return DomainResult.Failure<RecordValues>(new DomainError(
+                DomainErrorCode.Required,
+                "values must contain at least one item.",
+                "values"));
+        }
+
+        if (values.Count > MaximumCount)
+        {
+            return DomainResult.Failure<RecordValues>(new DomainError(
+                DomainErrorCode.OutOfRange,
+                $"values must contain at most {MaximumCount} items.",
+                "values"));
+        }
+
+        var parsed = new RecordValue[values.Count];
+        var aggregateBytes = 0;
+        for (var index = 0; index < values.Count; index++)
+        {
+            DomainResult<RecordValue> item = RecordValue.TryCreate(values[index]);
+            if (item.IsFailure)
+            {
+                return DomainResult.Failure<RecordValues>(item.Error! with { Field = $"values[{index}]" });
+            }
+
+            parsed[index] = item.Value;
+            aggregateBytes += Encoding.UTF8.GetByteCount(item.Value.Value);
+            if (aggregateBytes > MaximumAggregateUtf8Bytes)
+            {
+                return DomainResult.Failure<RecordValues>(new DomainError(
+                    DomainErrorCode.TextTooLong,
+                    $"values must total at most {MaximumAggregateUtf8Bytes} UTF-8 bytes.",
+                    "values"));
+            }
+        }
+
+        return DomainResult.Success(new RecordValues(parsed));
+    }
+
+    /// <inheritdoc />
+    public IEnumerator<RecordValue> GetEnumerator() => ((IEnumerable<RecordValue>)values).GetEnumerator();
+
+    /// <inheritdoc />
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => values.GetEnumerator();
+
+    /// <summary>返回固定遮盖文本。 / Returns fixed redacted text.</summary>
+    public override string ToString() => $"[REDACTED:{Count}]";
+}

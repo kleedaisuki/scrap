@@ -5,6 +5,33 @@ namespace Scrap.Protocol.Tests;
 
 public sealed class EnvelopeTests
 {
+    /// <summary>多值 wire 契约携带完整列表，响应仍保留首项 value。 / The multi-value wire contract carries the full list while responses retain the first-item value.</summary>
+    [Fact]
+    public void RecordContractsRoundTripValuesAndLegacyValue()
+    {
+        var parameters = new RecordSetParams("scope", "key", null) { Values = ["first", "", "first"] };
+        RecordSetParams decoded = ProtocolJson.Deserialize<RecordSetParams>(ProtocolJson.Serialize(parameters));
+        Assert.Null(decoded.Value);
+        Assert.Equal(["first", "", "first"], decoded.Values);
+
+        var dto = new RecordDto("scope", "key", "first", RecordPresentation.Masked,
+            DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, 1) { Values = ["first", "tail"] };
+        RecordDto roundTrip = ProtocolJson.Deserialize<RecordDto>(ProtocolJson.Serialize(dto));
+        Assert.Equal("first", roundTrip.Value);
+        Assert.Equal(["first", "tail"], roundTrip.Values);
+    }
+
+    /// <summary>最坏情况 JSON 转义下，最大合法列表仍小于 1 MiB frame。 / At worst-case JSON escaping, the largest valid list remains below the 1 MiB frame.</summary>
+    [Fact]
+    public void MaximumAggregateEscapedValuesFitDefaultFrame()
+    {
+        string escaped = new('\0', 64 * 1024);
+        var parameters = new RecordSetParams("scope", "key", null) { Values = [escaped] };
+        Assert.True(ProtocolJson.Serialize(parameters).Length < ProtocolConstants.DefaultMaxFrameSize);
+        var response = new RecordDto("scope", "key", escaped, RecordPresentation.Masked,
+            DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, 1) { Values = [escaped] };
+        Assert.True(ProtocolJson.Serialize(response).Length < ProtocolConstants.DefaultMaxFrameSize);
+    }
     [Fact]
     public void RequestCreate_ProducesObjectParamsAndCamelCaseWireNames()
     {
@@ -15,7 +42,7 @@ public sealed class EnvelopeTests
 
         string json = JsonSerializer.Serialize(request, ProtocolJson.Options);
 
-        Assert.Contains("\"protocolVersion\":1", json, StringComparison.Ordinal);
+        Assert.Contains($"\"protocolVersion\":{ProtocolConstants.CurrentVersion}", json, StringComparison.Ordinal);
         Assert.Contains("\"caseSensitivity\":\"sensitive\"", json, StringComparison.Ordinal);
         Assert.DoesNotContain("SearchCaseSensitivity", json, StringComparison.Ordinal);
         request.EnsureValid();

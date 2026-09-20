@@ -3,6 +3,32 @@ namespace Scrap.Cli.Tests;
 /// <summary>验证多 scope find 的命令契约与无歧义输出。 / Verifies the multi-scope find command contract and unambiguous output.</summary>
 public sealed class FindCommandTests
 {
+    /// <summary>set --json 读取可逆数组并调用整列表 API。 / set --json reads a reversible array and calls the whole-list API.</summary>
+    [Fact]
+    public async Task SetJsonUsesMultiValueClientSurface()
+    {
+        var client = new CapturingClient();
+        var environment = new TestEnvironment("[\"first\",\"\",\"first\"]");
+        Assert.Equal(ExitCodes.Success, await CliApplication.RunAsync(["set", "scope", "key", "--json"], client, environment));
+        Assert.Equal(["first", "", "first"], client.SetValues);
+    }
+
+    /// <summary>get --json 输出完整数组，旧 get 仍只输出索引 0。 / get --json emits the complete array while legacy get still emits index zero only.</summary>
+    [Fact]
+    public async Task GetJsonIsReversibleAndLegacyGetReturnsFirstValue()
+    {
+        var client = new CapturingClient
+        {
+            GetValue = new RecordValue("first", RecordPresentation.Masked) { Values = ["first", "tail\nline"] },
+        };
+        var json = new TestEnvironment();
+        Assert.Equal(ExitCodes.Success, await CliApplication.RunAsync(["get", "scope", "key", "--json"], client, json));
+        Assert.Equal(["first", "tail\nline"], System.Text.Json.JsonSerializer.Deserialize<string[]>(json.Output.ToString())!);
+
+        var legacy = new TestEnvironment();
+        Assert.Equal(ExitCodes.Success, await CliApplication.RunAsync(["get", "scope", "key"], client, legacy));
+        Assert.Equal("first", legacy.Output.ToString());
+    }
     /// <summary>重复 --scope 保持选择，文本结果始终输出 scope+key。 / Repeated --scope preserves selection and text output always emits scope+key.</summary>
     [Fact]
     public async Task FindAcceptsRepeatedScopesAndPrintsFullIdentityAsync()
@@ -44,6 +70,8 @@ public sealed class FindCommandTests
     private sealed class CapturingClient : IScrapClient
     {
         public RecordSearch? Search { get; private set; }
+        public IReadOnlyList<string>? SetValues { get; private set; }
+        public RecordValue GetValue { get; init; } = new(string.Empty, RecordPresentation.Masked);
 
         public Task<IReadOnlyList<RecordItem>> SearchRecordsAsync(RecordSearch search, CancellationToken cancellationToken)
         {
@@ -61,7 +89,12 @@ public sealed class FindCommandTests
         public Task RenameScopeAsync(string oldName, string newName, CancellationToken cancellationToken) => throw Unused();
         public Task<int> DeleteScopeAsync(string scope, bool recursive, CancellationToken cancellationToken) => throw Unused();
         public Task SetRecordAsync(string scope, string key, string value, RecordPresentation presentation, CancellationToken cancellationToken) => throw Unused();
-        public Task<RecordValue> GetRecordAsync(string scope, string key, CancellationToken cancellationToken) => throw Unused();
+        public Task SetRecordAsync(string scope, string key, IReadOnlyList<string> values, RecordPresentation presentation, CancellationToken cancellationToken)
+        {
+            SetValues = values;
+            return Task.CompletedTask;
+        }
+        public Task<RecordValue> GetRecordAsync(string scope, string key, CancellationToken cancellationToken) => Task.FromResult(GetValue);
         public Task RenameRecordAsync(string scope, string oldKey, string newKey, CancellationToken cancellationToken) => throw Unused();
         public Task DeleteRecordAsync(string scope, string key, CancellationToken cancellationToken) => throw Unused();
         public Task<IReadOnlyList<RecordItem>> ListRecordsAsync(string scope, CancellationToken cancellationToken) => throw Unused();
@@ -75,7 +108,8 @@ public sealed class FindCommandTests
 
     private sealed class TestEnvironment : ICliEnvironment
     {
-        public TextReader Input { get; } = new StringReader(string.Empty);
+        public TestEnvironment(string input = "") => Input = new StringReader(input);
+        public TextReader Input { get; }
         public StringWriter Output { get; } = new();
         TextWriter ICliEnvironment.Output => Output;
         public TextWriter ErrorWriter { get; } = new StringWriter();

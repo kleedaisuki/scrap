@@ -8,7 +8,10 @@ public static class ProtocolConstants
     /// <summary>
     /// 当前主协议版本。 / Gets the current major protocol version.
     /// </summary>
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
+
+    /// <summary>daemon 仍接受的最早协议版本。 / Earliest protocol version still accepted by the daemon.</summary>
+    public const int MinimumSupportedVersion = 1;
 
     /// <summary>
     /// 默认最大 JSON payload 大小（1 MiB）。 / Gets the default maximum JSON payload size (1 MiB).

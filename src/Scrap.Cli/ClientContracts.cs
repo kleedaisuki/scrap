@@ -73,7 +73,11 @@ public sealed record RecordItem(
     long Revision);
 
 /// <summary>record 读取结果。/ A record read result.</summary>
-public sealed record RecordValue(string Value, RecordPresentation Presentation);
+public sealed record RecordValue(string Value, RecordPresentation Presentation)
+{
+    /// <summary>获取完整有序 value 列表；旧 facade 实现可保留默认单例。 / Gets the complete ordered value list; legacy facade implementations may retain the singleton default.</summary>
+    public IReadOnlyList<string> Values { get; init; } = [Value];
+}
 
 /// <summary>
 /// 搜索请求；大小写是模式修饰符而不是独立模式。/
@@ -110,6 +114,8 @@ public interface IScrapClient
     Task<int> DeleteScopeAsync(string scope, bool recursive, CancellationToken cancellationToken);
     /// <summary>创建或整值替换 record。/ Creates or replaces a complete record value.</summary>
     Task SetRecordAsync(string scope, string key, string value, RecordPresentation presentation, CancellationToken cancellationToken);
+    /// <summary>创建或原子替换完整有序 value 列表。/ Creates or atomically replaces the complete ordered value list.</summary>
+    Task SetRecordAsync(string scope, string key, IReadOnlyList<string> values, RecordPresentation presentation, CancellationToken cancellationToken);
     /// <summary>精确读取 record。/ Reads a record by exact identity.</summary>
     Task<RecordValue> GetRecordAsync(string scope, string key, CancellationToken cancellationToken);
     /// <summary>原子重命名 record key。/ Atomically renames a record key.</summary>

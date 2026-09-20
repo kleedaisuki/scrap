@@ -48,7 +48,14 @@ public sealed record RecordDto(
     RecordPresentation Presentation,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    long Revision);
+    long Revision)
+{
+    /// <summary>
+    /// 获取完整的非空有序 value 列表；旧响应缺少该字段时退化为 <see cref="Value"/> 单例。<br/>
+    /// Gets the complete non-empty ordered value list; legacy responses without this field fall back to a <see cref="Value"/> singleton.
+    /// </summary>
+    public IReadOnlyList<string> Values { get; init; } = [Value];
+}
 
 /// <summary>
 /// 表示 <c>record.get</c> 参数。 / Represents <c>record.get</c> parameters.
@@ -69,7 +76,7 @@ public sealed record RecordGetResult(RecordDto Record);
 /// </summary>
 /// <param name="Scope">精确 scope 名称。 / Exact scope name.</param>
 /// <param name="Key">精确、大小写敏感的 key。 / Exact, case-sensitive key.</param>
-/// <param name="Value">整值替换的 UTF-8 文本。 / UTF-8 text used for whole-value replacement.</param>
+/// <param name="Value">旧客户端的 UTF-8 标量；新建时形成单例，更新时仅替换索引 0 并保留其余项。 / Legacy UTF-8 scalar; creates a singleton or replaces only index zero while preserving the tail.</param>
 /// <param name="Presentation">展示策略。 / Presentation policy.</param>
 /// <param name="ExpectedRevision">写入前置条件：null 表示无条件 upsert，0 表示仅当 record 不存在时创建，正数表示必须匹配当前 revision。 / Write precondition: null means unconditional upsert, zero means create only when the record does not exist, and a positive value must match the current revision.</param>
 /// <remarks>
@@ -79,10 +86,16 @@ public sealed record RecordGetResult(RecordDto Record);
 public sealed record RecordSetParams(
     string Scope,
     string Key,
-    string Value,
+    string? Value = null,
     RecordPresentation Presentation = RecordPresentation.Masked,
     long? ExpectedRevision = null)
 {
+    /// <summary>
+    /// 获取可选的完整有序 value 列表。设置时 <see cref="Value"/> 必须为 null。<br/>
+    /// Gets the optional complete ordered value list. When supplied, <see cref="Value"/> must be null.
+    /// </summary>
+    public IReadOnlyList<string>? Values { get; init; }
+
     /// <summary>
     /// 获取 set 前置条件：null=unconditional、0=create-only、正数=revision match。
     /// / Gets the set precondition: null=unconditional, zero=create-only, positive=revision match.

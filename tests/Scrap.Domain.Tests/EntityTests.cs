@@ -3,6 +3,29 @@ namespace Scrap.Domain.Tests;
 /// <summary>验证 scope 与 record 的不可变更新及展示不变量。 / Verifies immutable updates and presentation invariants for scopes and records.</summary>
 public sealed class EntityTests
 {
+    /// <summary>多值 record 保留顺序、重复项与空字符串，并把展示策略应用于整体。 / Multi-value records preserve order, duplicates, and empty strings while applying presentation to the whole record.</summary>
+    [Fact]
+    public void RecordPreservesOrderedValuesAndReplacesWholeList()
+    {
+        DateTimeOffset createdAt = DateTimeOffset.UnixEpoch;
+        var record = Record.TryCreate("scope", "key", ["first", "", "first"], Presentation.Masked, createdAt).Value;
+        var replaced = record.TryReplace(["next", "tail"], Presentation.Plain, createdAt.AddMinutes(1)).Value;
+
+        Assert.Equal(["first", "", "first"], record.Values.Select(value => value.Value));
+        Assert.Equal("first", record.Value.Value);
+        Assert.Equal(["next", "tail"], replaced.Values.Select(value => value.Value));
+        Assert.Equal(Presentation.Plain, replaced.Presentation);
+    }
+
+    /// <summary>列表必须非空，最多 32 项且总 UTF-8 大小不超过 64 KiB。 / Lists are non-empty, capped at 32 items, and at most 64 KiB aggregate UTF-8.</summary>
+    [Fact]
+    public void RecordValuesEnforceCountAndAggregateBounds()
+    {
+        Assert.True(RecordValues.TryCreate([new string('a', RecordValues.MaximumAggregateUtf8Bytes)]).IsSuccess);
+        Assert.True(RecordValues.TryCreate([]).IsFailure);
+        Assert.True(RecordValues.TryCreate(Enumerable.Repeat(string.Empty, RecordValues.MaximumCount + 1).ToArray()).IsFailure);
+        Assert.True(RecordValues.TryCreate([new string('a', RecordValues.MaximumAggregateUtf8Bytes), "b"]).IsFailure);
+    }
     /// <summary>验证 scope 重命名不改变原实例或创建时间。 / Verifies that scope rename changes neither the original instance nor creation time.</summary>
     [Fact]
     public void ScopeRenameIsImmutable()

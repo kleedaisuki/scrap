@@ -27,7 +27,7 @@ internal interface IDaemonOperations
     /// <summary>读取并解密 record。 / Reads and decrypts a record.</summary>
     Task<RecordGetResult> GetRecordAsync(RecordGetParams parameters, CancellationToken cancellationToken);
 
-    /// <summary>新增或整值替换 record。 / Creates or wholly replaces a record.</summary>
+    /// <summary>按 scalar 或 whole-list 契约原子写入 record。 / Atomically writes a record under the scalar or whole-list contract.</summary>
     Task<RecordSetResult> SetRecordAsync(RecordSetParams parameters, CancellationToken cancellationToken);
 
     /// <summary>原子重命名并重加密 record。 / Atomically renames and re-encrypts a record.</summary>

@@ -88,14 +88,14 @@ public sealed class Record
     private Record(
         ScopeName scope,
         RecordKey key,
-        RecordValue value,
+        RecordValues values,
         Presentation presentation,
         DateTimeOffset createdAt,
         DateTimeOffset updatedAt)
     {
         Scope = scope;
         Key = key;
-        Value = value;
+        Values = values;
         Presentation = presentation;
         CreatedAt = createdAt;
         UpdatedAt = updatedAt;
@@ -107,8 +107,11 @@ public sealed class Record
     /// <summary>获取 scope 内的键。 / Gets the key within the scope.</summary>
     public RecordKey Key { get; }
 
-    /// <summary>获取秘密值。 / Gets the secret value.</summary>
-    public RecordValue Value { get; }
+    /// <summary>获取首个秘密值，供旧调用方兼容使用。 / Gets the first secret value for compatibility with legacy callers.</summary>
+    public RecordValue Value => Values[0];
+
+    /// <summary>获取非空、有序秘密值列表。 / Gets the non-empty ordered list of secret values.</summary>
+    public RecordValues Values { get; }
 
     /// <summary>获取展示策略。 / Gets the presentation policy.</summary>
     public Presentation Presentation { get; }
@@ -145,18 +148,30 @@ public sealed class Record
             return DomainResult.Failure<Record>(keyResult.Error!);
         }
 
-        var valueResult = RecordValue.TryCreate(value);
-        if (valueResult.IsFailure)
-        {
-            return DomainResult.Failure<Record>(valueResult.Error!);
-        }
+        return TryCreate(scope, key, value is null ? null : [value], presentation, createdAt);
+    }
+
+    /// <summary>从有序值列表创建 record。 / Creates a record from an ordered value list.</summary>
+    public static DomainResult<Record> TryCreate(
+        string? scope,
+        string? key,
+        IReadOnlyList<string>? values,
+        Presentation presentation,
+        DateTimeOffset createdAt)
+    {
+        var scopeResult = ScopeName.TryCreate(scope);
+        if (scopeResult.IsFailure) return DomainResult.Failure<Record>(scopeResult.Error!);
+        var keyResult = RecordKey.TryCreate(key);
+        if (keyResult.IsFailure) return DomainResult.Failure<Record>(keyResult.Error!);
+        var valuesResult = RecordValues.TryCreate(values);
+        if (valuesResult.IsFailure) return DomainResult.Failure<Record>(valuesResult.Error!);
 
         var presentationError = ValidatePresentation(presentation);
         return presentationError is null
             ? DomainResult.Success(new Record(
                 scopeResult.Value,
                 keyResult.Value,
-                valueResult.Value,
+                valuesResult.Value,
                 presentation,
                 createdAt,
                 createdAt))
@@ -187,10 +202,22 @@ public sealed class Record
             ? DomainResult.Success(new Record(
                 created.Value.Scope,
                 created.Value.Key,
-                created.Value.Value,
+                created.Value.Values,
                 created.Value.Presentation,
                 createdAt,
                 updatedAt))
+            : DomainResult.Failure<Record>(created.Error!);
+    }
+
+    /// <summary>从持久化的有序列表重建 record。 / Restores a record from a persisted ordered list.</summary>
+    public static DomainResult<Record> TryRestore(
+        string? scope, string? key, IReadOnlyList<string>? values, Presentation presentation,
+        DateTimeOffset createdAt, DateTimeOffset updatedAt)
+    {
+        var created = TryCreate(scope, key, values, presentation, createdAt);
+        return created.IsSuccess
+            ? DomainResult.Success(new Record(created.Value.Scope, created.Value.Key, created.Value.Values,
+                created.Value.Presentation, createdAt, updatedAt))
             : DomainResult.Failure<Record>(created.Error!);
     }
 
@@ -204,18 +231,24 @@ public sealed class Record
         Presentation presentation,
         DateTimeOffset updatedAt)
     {
-        var valueResult = RecordValue.TryCreate(value);
-        if (valueResult.IsFailure)
-        {
-            return DomainResult.Failure<Record>(valueResult.Error!);
-        }
+        return TryReplace(value is null ? null : [value], presentation, updatedAt);
+    }
+
+    /// <summary>原子替换完整有序值列表。 / Atomically replaces the complete ordered value list.</summary>
+    public DomainResult<Record> TryReplace(
+        IReadOnlyList<string>? values,
+        Presentation presentation,
+        DateTimeOffset updatedAt)
+    {
+        var valuesResult = RecordValues.TryCreate(values);
+        if (valuesResult.IsFailure) return DomainResult.Failure<Record>(valuesResult.Error!);
 
         var presentationError = ValidatePresentation(presentation);
         return presentationError is null
             ? DomainResult.Success(new Record(
                 Scope,
                 Key,
-                valueResult.Value,
+                valuesResult.Value,
                 presentation,
                 CreatedAt,
                 updatedAt))
@@ -246,7 +279,7 @@ public sealed class Record
             ? DomainResult.Success(new Record(
                 scopeResult.Value,
                 keyResult.Value,
-                Value,
+                Values,
                 Presentation,
                 CreatedAt,
                 updatedAt))
