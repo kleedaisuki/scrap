@@ -142,7 +142,7 @@ jobs:
 
           # 同时检查两个用户入口的 MSI 表契约；真实安装/卸载仍由 release workflow 覆盖。
           # Inspect both user-entry contracts in MSI tables; the release workflow still covers real install/uninstall.
-          $view = $database.OpenView("SELECT `Shortcut`, `Directory_`, `Target` FROM `Shortcut`")
+          $view = $database.OpenView('SELECT `Shortcut`, `Directory_`, `Target` FROM `Shortcut`')
           $view.Execute()
           $shortcuts = @{}
           while ($record = $view.Fetch()) {
