@@ -9,6 +9,59 @@ namespace Scrap.Integration.Tests;
 /// <summary>验证升级 client 自动替换仍在运行的 v1 daemon。 / Verifies that an upgraded client automatically replaces a still-running v1 daemon.</summary>
 public sealed class LegacyDaemonReplacementTests
 {
+    /// <summary>existing-only client 重连时仍保持无替换能力，不会关闭后来出现的 v1 daemon。 / An existing-only client remains unable to replace daemons on reconnect and does not stop a later v1 daemon.</summary>
+    [Fact]
+    public async Task ExistingOnlyReconnectDoesNotReplaceLegacyDaemonAsync()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "scrap-reconnect-tests", Guid.NewGuid().ToString("N"));
+        var paths = new ScrapPathLayout(root);
+        paths.Initialize();
+        IpcEndpointDescriptor endpoint = IpcEndpointDescriptor.Create(paths);
+        Task current = RunCurrentHandshakeAndCloseAsync(endpoint);
+
+        try
+        {
+            await using ScrapClient client = Assert.IsType<ScrapClient>(
+                await ScrapClient.TryConnectExistingAsync(endpoint));
+            await current.WaitAsync(TimeSpan.FromSeconds(5));
+            await Assert.ThrowsAsync<ScrapConnectionException>(() => client.PingAsync());
+
+            var receivedExtraRequest = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task legacy = RunLegacyProbeDaemonAsync(endpoint, receivedExtraRequest);
+            await Assert.ThrowsAsync<ScrapProtocolVersionException>(() => client.PingAsync());
+            await legacy.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(await receivedExtraRequest.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>existing-only probe 对 v1 daemon 返回版本错误，且不发送 shutdown。 / An existing-only probe reports a version error for a v1 daemon without sending shutdown.</summary>
+    [Fact]
+    public async Task TryConnectExistingDoesNotMutateLegacyDaemonAsync()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "scrap-probe-tests", Guid.NewGuid().ToString("N"));
+        var paths = new ScrapPathLayout(root);
+        paths.Initialize();
+        IpcEndpointDescriptor endpoint = IpcEndpointDescriptor.Create(paths);
+        var receivedExtraRequest = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task legacy = RunLegacyProbeDaemonAsync(endpoint, receivedExtraRequest);
+
+        try
+        {
+            await Assert.ThrowsAsync<ScrapProtocolVersionException>(
+                () => ScrapClient.TryConnectExistingAsync(endpoint));
+            await legacy.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(await receivedExtraRequest.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
     /// <summary>v2 client 在同一旧连接上完成 v1 shutdown，再通过 launcher 连接 v2 daemon。 / A v2 client performs v1 shutdown on the legacy connection, then connects to a v2 daemon through its launcher.</summary>
     [Fact]
     public async Task ConnectAsyncAutomaticallyReplacesLegacyDaemonAsync()
@@ -64,6 +117,44 @@ public sealed class LegacyDaemonReplacementTests
             new DaemonShutdownResult(),
             protocolVersion: 1));
         shutdown.TrySetResult();
+    }
+
+    private static async Task RunLegacyProbeDaemonAsync(
+        IpcEndpointDescriptor endpoint,
+        TaskCompletionSource<bool> receivedExtraRequest)
+    {
+        await using var server = endpoint.CreateServerStream();
+        await server.WaitForConnectionAsync();
+        ProtocolRequest request = await LengthPrefixedJsonFraming.ReadAsync<ProtocolRequest>(server);
+        await LengthPrefixedJsonFraming.WriteAsync(server, ProtocolResponse.Failure(
+            request.RequestId,
+            new ProtocolError(ProtocolErrorCodes.ProtocolVersionUnsupported, "Protocol version is not supported."),
+            protocolVersion: 1));
+
+        try
+        {
+            _ = await LengthPrefixedJsonFraming.ReadAsync<ProtocolRequest>(server);
+            receivedExtraRequest.TrySetResult(true);
+        }
+        catch (EndOfStreamException)
+        {
+            receivedExtraRequest.TrySetResult(false);
+        }
+        catch (IOException)
+        {
+            receivedExtraRequest.TrySetResult(false);
+        }
+    }
+
+    private static async Task RunCurrentHandshakeAndCloseAsync(IpcEndpointDescriptor endpoint)
+    {
+        await using var server = endpoint.CreateServerStream();
+        await server.WaitForConnectionAsync();
+        ProtocolRequest request = await LengthPrefixedJsonFraming.ReadAsync<ProtocolRequest>(server);
+        await LengthPrefixedJsonFraming.WriteAsync(server, ProtocolResponse.Success(
+            request.RequestId,
+            new DaemonVersionResult("0.3.0", 1, ProtocolConstants.CurrentVersion),
+            request.ProtocolVersion));
     }
 
     private sealed class CurrentDaemonLauncher(IpcEndpointDescriptor endpoint) : IDaemonProcessLauncher, IAsyncDisposable

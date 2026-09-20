@@ -29,17 +29,20 @@ public sealed class ScrapClient : IAsyncDisposable
     private readonly ScrapClientOptions _options;
     private readonly SemaphoreSlim _requestGate = new(1, 1);
     private readonly CancellationTokenSource _lifetimeCancellation = new();
+    private readonly bool _replaceLegacyDaemon;
     private NamedPipeClientStream? _stream;
     private int _disposed;
 
     private ScrapClient(
         DaemonConnectionFactory connectionFactory,
         ScrapClientOptions options,
-        NamedPipeClientStream stream)
+        NamedPipeClientStream stream,
+        bool replaceLegacyDaemon)
     {
         _connectionFactory = connectionFactory;
         _options = options;
         _stream = stream;
+        _replaceLegacyDaemon = replaceLegacyDaemon;
     }
 
     /// <summary>
@@ -121,9 +124,17 @@ public sealed class ScrapClient : IAsyncDisposable
         ScrapClientOptions validatedOptions = (options ?? new ScrapClientOptions()).Validate();
         var connectionFactory = new DaemonConnectionFactory(endpoint, validatedOptions);
         NamedPipeClientStream? stream = await connectionFactory.TryConnectExistingAsync(
-            (candidate, token) => NegotiateVersionAsync(candidate, validatedOptions.MaxFrameSize, token),
+            (candidate, token) => NegotiateVersionAsync(
+                candidate,
+                validatedOptions.MaxFrameSize,
+                replaceLegacyDaemon: false,
+                cancellationToken: token),
             cancellationToken).ConfigureAwait(false);
-        return stream is null ? null : new ScrapClient(connectionFactory, validatedOptions, stream);
+        return stream is null ? null : new ScrapClient(
+            connectionFactory,
+            validatedOptions,
+            stream,
+            replaceLegacyDaemon: false);
     }
 
     /// <summary>
@@ -148,9 +159,13 @@ public sealed class ScrapClient : IAsyncDisposable
 
         var connectionFactory = new DaemonConnectionFactory(endpoint, launcher, validatedOptions);
         NamedPipeClientStream stream = await connectionFactory.ConnectAsync(
-            (candidate, token) => NegotiateVersionAsync(candidate, validatedOptions.MaxFrameSize, token),
+            (candidate, token) => NegotiateVersionAsync(
+                candidate,
+                validatedOptions.MaxFrameSize,
+                replaceLegacyDaemon: true,
+                cancellationToken: token),
             cancellationToken).ConfigureAwait(false);
-        return new ScrapClient(connectionFactory, validatedOptions, stream);
+        return new ScrapClient(connectionFactory, validatedOptions, stream, replaceLegacyDaemon: true);
     }
 
     /// <summary>
@@ -528,12 +543,17 @@ public sealed class ScrapClient : IAsyncDisposable
 
     private async ValueTask<NamedPipeClientStream> OpenNegotiatedConnectionAsync(CancellationToken cancellationToken)
         => await _connectionFactory.ConnectAsync(
-            (candidate, token) => NegotiateVersionAsync(candidate, _options.MaxFrameSize, token),
+            (candidate, token) => NegotiateVersionAsync(
+                candidate,
+                _options.MaxFrameSize,
+                replaceLegacyDaemon: _replaceLegacyDaemon,
+                cancellationToken: token),
             cancellationToken).ConfigureAwait(false);
 
     private static async ValueTask NegotiateVersionAsync(
         NamedPipeClientStream stream,
         int maxFrameSize,
+        bool replaceLegacyDaemon,
         CancellationToken cancellationToken)
     {
         DaemonVersionResult version;
@@ -549,6 +569,11 @@ public sealed class ScrapClient : IAsyncDisposable
         catch (ProtocolException exception) when (
             exception.ErrorCode == ProtocolErrorCodes.ProtocolVersionUnsupported)
         {
+            if (!replaceLegacyDaemon)
+            {
+                throw new ScrapProtocolVersionException(ProtocolConstants.CurrentVersion, exception);
+            }
+
             await ReplaceLegacyDaemonAsync(stream, maxFrameSize, cancellationToken).ConfigureAwait(false);
             throw new IOException("A legacy daemon was stopped and will be replaced.", exception);
         }

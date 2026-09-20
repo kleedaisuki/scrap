@@ -13,6 +13,20 @@ public sealed class FindCommandTests
         Assert.Equal(["first", "", "first"], client.SetValues);
     }
 
+    /// <summary>JSON null 项作为输入校验错误处理，不落入 unexpected failure。 / A JSON null item is a validation error rather than an unexpected failure.</summary>
+    [Fact]
+    public async Task SetJsonRejectsNullItemAsValidationError()
+    {
+        var environment = new TestEnvironment("[null]");
+        int exitCode = await CliApplication.RunAsync(
+            ["set", "scope", "key", "--json"],
+            new CapturingClient(),
+            environment);
+
+        Assert.Equal(ExitCodes.Validation, exitCode);
+        Assert.Contains("string", environment.ErrorWriter.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>get --json 输出完整数组，旧 get 仍只输出索引 0。 / get --json emits the complete array while legacy get still emits index zero only.</summary>
     [Fact]
     public async Task GetJsonIsReversibleAndLegacyGetReturnsFirstValue()

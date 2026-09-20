@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Scrap.Crypto;
+using Scrap.Domain;
 using Scrap.Platform.Paths;
 using Scrap.Platform.Secrets;
 using Scrap.Protocol;
@@ -21,6 +22,16 @@ public sealed class SqliteDaemonOperationsIntegrationTests
 {
     private static readonly string[] CaseSensitiveScopeOrder = ["Vault", "vault"];
     private static readonly string[] FirstKeysetPage = ["A", "a"];
+
+    /// <summary>旧标量路径在读取 storage 前执行领域身份校验。 / The legacy scalar path validates domain identity before reading storage.</summary>
+    [Fact]
+    public async Task LegacyScalarSetValidatesIdentityBeforeStorageReadAsync()
+    {
+        using var context = await OperationsContext.CreateAsync();
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(
+            () => context.Operations.SetRecordAsync(new("", "key", "value"), default));
+        Assert.Equal(DomainErrorCode.Required, exception.Error.Code);
+    }
 
     /// <summary>整列表写入保留顺序/重复/空项，旧标量写入只替换索引 0。 / Whole-list writes preserve order, duplicates, and empty items; legacy scalar writes replace index zero only.</summary>
     [Fact]

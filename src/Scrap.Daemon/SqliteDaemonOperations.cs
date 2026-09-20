@@ -157,6 +157,10 @@ internal sealed class SqliteDaemonOperations : IDaemonOperations, IDisposable
     public Task<RecordSetResult> SetRecordAsync(RecordSetParams parameters, CancellationToken cancellationToken)
     {
         EnsureReady(cancellationToken);
+        // Validate identity before the legacy read-modify-write path touches storage so malformed input remains a domain error.
+        // 在旧版读-改-写路径访问存储前校验身份，确保畸形输入仍映射为领域错误。
+        _ = ScopeName.Create(parameters.Scope);
+        _ = RecordKey.Create(parameters.Key);
         if (parameters.Values is not null && parameters.Value is not null)
         {
             throw new DomainException(new DomainError(
@@ -372,6 +376,10 @@ internal sealed class SqliteDaemonOperations : IDaemonOperations, IDisposable
 
     private string[] MergeLegacyFirstValue(string scope, string key, string firstValue)
     {
+        // DaemonRequestDispatcher executes record.set through its mutation gate. The read and staged CAS commit therefore
+        // form one serialized daemon mutation; the store's preparation check remains the final invariant guard.
+        // DaemonRequestDispatcher 通过 mutation gate 执行 record.set，因此读取与 staged CAS 提交构成串行 daemon mutation；
+        // store 的 preparation check 仍是最终不变量防线。
         StoredRecord? existing = store.GetRecord(scope, key);
         if (existing is null)
         {

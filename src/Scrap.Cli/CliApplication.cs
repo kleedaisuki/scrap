@@ -252,8 +252,13 @@ public static class CliApplication
         }
 
         var aggregateBytes = 0;
-        foreach (string value in values)
+        foreach (string? value in values)
         {
+            if (value is null)
+            {
+                throw new CliValidationException("Every JSON array item must be a string.");
+            }
+
             Utf8Text.Validate(value, MaximumValueUtf8Bytes);
             aggregateBytes += Encoding.UTF8.GetByteCount(value);
             if (aggregateBytes > MaximumValueUtf8Bytes)

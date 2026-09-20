@@ -28,6 +28,16 @@ public sealed class DaemonEndToEndTests
     private const string ReplacementSecret = "SCRAP-E2E-PLAINTEXT-f07dd44822574bdf92ae6279f047a91d-机密-🌙\r\n终章";
     private static readonly string[] FirstPageKeys = ["A", "a", "api"];
 
+    /// <summary>旧标量 set 的非法身份仍通过 wire 映射为 invalid_params。 / Invalid identity on legacy scalar set still maps to invalid_params over the wire.</summary>
+    [Fact]
+    public async Task InvalidLegacyScalarIdentityMapsToInvalidParamsAsync()
+    {
+        await using DaemonTestContext context = await DaemonTestContext.StartAsync();
+        RemoteProtocolException exception = await Assert.ThrowsAsync<RemoteProtocolException>(
+            () => context.Client.SetRecordAsync("", "key", "value"));
+        Assert.Equal(ProtocolErrorCodes.InvalidParams, exception.ErrorCode);
+    }
+
     /// <summary>typed client 的整列表 API 穿过真实 IPC，并由一次 revision/CAS 原子保护。 / The typed client's whole-list API crosses real IPC and is atomically guarded by one revision/CAS.</summary>
     [Fact]
     public async Task MultiValueRoundTripsThroughTypedClientAsync()
