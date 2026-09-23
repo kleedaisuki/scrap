@@ -18,13 +18,15 @@ public sealed class LegacyDaemonReplacementTests
         paths.Initialize();
         IpcEndpointDescriptor endpoint = IpcEndpointDescriptor.Create(paths);
         var currentReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        Task current = RunCurrentHandshakeAndCloseAsync(endpoint, currentReady);
+        var closeCurrent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task current = RunCurrentHandshakeAndCloseAsync(endpoint, currentReady, closeCurrent);
 
         try
         {
             await currentReady.Task.WaitAsync(TimeSpan.FromSeconds(5));
             await using ScrapClient client = Assert.IsType<ScrapClient>(
                 await ScrapClient.TryConnectExistingAsync(endpoint));
+            closeCurrent.TrySetResult();
             await current.WaitAsync(TimeSpan.FromSeconds(5));
             await Assert.ThrowsAsync<ScrapConnectionException>(() => client.PingAsync());
 
@@ -38,6 +40,7 @@ public sealed class LegacyDaemonReplacementTests
         }
         finally
         {
+            closeCurrent.TrySetResult();
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
     }
@@ -162,7 +165,8 @@ public sealed class LegacyDaemonReplacementTests
 
     private static async Task RunCurrentHandshakeAndCloseAsync(
         IpcEndpointDescriptor endpoint,
-        TaskCompletionSource ready)
+        TaskCompletionSource ready,
+        TaskCompletionSource close)
     {
         await using var server = endpoint.CreateServerStream();
         Task waitForConnection = server.WaitForConnectionAsync();
@@ -173,6 +177,7 @@ public sealed class LegacyDaemonReplacementTests
             request.RequestId,
             new DaemonVersionResult("0.3.0", 1, ProtocolConstants.CurrentVersion),
             request.ProtocolVersion));
+        await close.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     private sealed class CurrentDaemonLauncher(IpcEndpointDescriptor endpoint) : IDaemonProcessLauncher, IAsyncDisposable
