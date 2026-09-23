@@ -9,6 +9,12 @@ namespace Scrap.Integration.Tests;
 /// <summary>验证升级 client 自动替换仍在运行的 v1 daemon。 / Verifies that an upgraded client automatically replaces a still-running v1 daemon.</summary>
 public sealed class LegacyDaemonReplacementTests
 {
+    private static readonly ScrapClientOptions FixtureOptions = new()
+    {
+        InitialConnectTimeout = TimeSpan.FromSeconds(5),
+        StartupTimeout = TimeSpan.FromSeconds(5),
+    };
+
     /// <summary>existing-only client 重连时仍保持无替换能力，不会关闭后来出现的 v1 daemon。 / An existing-only client remains unable to replace daemons on reconnect and does not stop a later v1 daemon.</summary>
     [Fact]
     public async Task ExistingOnlyReconnectDoesNotReplaceLegacyDaemonAsync()
@@ -25,7 +31,7 @@ public sealed class LegacyDaemonReplacementTests
         {
             await currentReady.Task.WaitAsync(TimeSpan.FromSeconds(5));
             await using ScrapClient client = Assert.IsType<ScrapClient>(
-                await ScrapClient.TryConnectExistingAsync(endpoint));
+                await ScrapClient.TryConnectExistingAsync(endpoint, FixtureOptions));
             closeCurrent.TrySetResult();
             await current.WaitAsync(TimeSpan.FromSeconds(5));
             await Assert.ThrowsAsync<ScrapConnectionException>(() => client.PingAsync());
@@ -61,7 +67,7 @@ public sealed class LegacyDaemonReplacementTests
         {
             await legacyReady.Task.WaitAsync(TimeSpan.FromSeconds(5));
             await Assert.ThrowsAsync<ScrapProtocolVersionException>(
-                () => ScrapClient.TryConnectExistingAsync(endpoint));
+                () => ScrapClient.TryConnectExistingAsync(endpoint, FixtureOptions));
             await legacy.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.False(await receivedExtraRequest.Task.WaitAsync(TimeSpan.FromSeconds(5)));
         }
@@ -90,7 +96,7 @@ public sealed class LegacyDaemonReplacementTests
             await using ScrapClient client = await ScrapClient.ConnectAsync(
                 endpoint,
                 launcher,
-                new ScrapClientOptions { StartupTimeout = TimeSpan.FromSeconds(5) });
+                FixtureOptions);
             await legacyShutdown.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.True(launcher.StartCount >= 1);
         }
