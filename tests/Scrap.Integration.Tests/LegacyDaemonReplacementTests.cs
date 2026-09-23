@@ -17,17 +17,21 @@ public sealed class LegacyDaemonReplacementTests
         var paths = new ScrapPathLayout(root);
         paths.Initialize();
         IpcEndpointDescriptor endpoint = IpcEndpointDescriptor.Create(paths);
-        Task current = RunCurrentHandshakeAndCloseAsync(endpoint);
+        var currentReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task current = RunCurrentHandshakeAndCloseAsync(endpoint, currentReady);
 
         try
         {
+            await currentReady.Task.WaitAsync(TimeSpan.FromSeconds(5));
             await using ScrapClient client = Assert.IsType<ScrapClient>(
                 await ScrapClient.TryConnectExistingAsync(endpoint));
             await current.WaitAsync(TimeSpan.FromSeconds(5));
             await Assert.ThrowsAsync<ScrapConnectionException>(() => client.PingAsync());
 
             var receivedExtraRequest = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            Task legacy = RunLegacyProbeDaemonAsync(endpoint, receivedExtraRequest);
+            var legacyReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task legacy = RunLegacyProbeDaemonAsync(endpoint, receivedExtraRequest, legacyReady);
+            await legacyReady.Task.WaitAsync(TimeSpan.FromSeconds(5));
             await Assert.ThrowsAsync<ScrapProtocolVersionException>(() => client.PingAsync());
             await legacy.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.False(await receivedExtraRequest.Task.WaitAsync(TimeSpan.FromSeconds(5)));
@@ -47,10 +51,12 @@ public sealed class LegacyDaemonReplacementTests
         paths.Initialize();
         IpcEndpointDescriptor endpoint = IpcEndpointDescriptor.Create(paths);
         var receivedExtraRequest = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        Task legacy = RunLegacyProbeDaemonAsync(endpoint, receivedExtraRequest);
+        var legacyReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task legacy = RunLegacyProbeDaemonAsync(endpoint, receivedExtraRequest, legacyReady);
 
         try
         {
+            await legacyReady.Task.WaitAsync(TimeSpan.FromSeconds(5));
             await Assert.ThrowsAsync<ScrapProtocolVersionException>(
                 () => ScrapClient.TryConnectExistingAsync(endpoint));
             await legacy.WaitAsync(TimeSpan.FromSeconds(5));
@@ -71,11 +77,13 @@ public sealed class LegacyDaemonReplacementTests
         paths.Initialize();
         IpcEndpointDescriptor endpoint = IpcEndpointDescriptor.Create(paths);
         var legacyShutdown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        Task legacy = RunLegacyDaemonAsync(endpoint, legacyShutdown);
+        var legacyReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task legacy = RunLegacyDaemonAsync(endpoint, legacyShutdown, legacyReady);
         var launcher = new CurrentDaemonLauncher(endpoint);
 
         try
         {
+            await legacyReady.Task.WaitAsync(TimeSpan.FromSeconds(5));
             await using ScrapClient client = await ScrapClient.ConnectAsync(
                 endpoint,
                 launcher,
@@ -93,10 +101,13 @@ public sealed class LegacyDaemonReplacementTests
 
     private static async Task RunLegacyDaemonAsync(
         IpcEndpointDescriptor endpoint,
-        TaskCompletionSource shutdown)
+        TaskCompletionSource shutdown,
+        TaskCompletionSource ready)
     {
         await using var server = endpoint.CreateServerStream();
-        await server.WaitForConnectionAsync();
+        Task waitForConnection = server.WaitForConnectionAsync();
+        ready.TrySetResult();
+        await waitForConnection;
 
         ProtocolRequest v2 = await LengthPrefixedJsonFraming.ReadAsync<ProtocolRequest>(server);
         await LengthPrefixedJsonFraming.WriteAsync(server, ProtocolResponse.Failure(
@@ -121,10 +132,13 @@ public sealed class LegacyDaemonReplacementTests
 
     private static async Task RunLegacyProbeDaemonAsync(
         IpcEndpointDescriptor endpoint,
-        TaskCompletionSource<bool> receivedExtraRequest)
+        TaskCompletionSource<bool> receivedExtraRequest,
+        TaskCompletionSource ready)
     {
         await using var server = endpoint.CreateServerStream();
-        await server.WaitForConnectionAsync();
+        Task waitForConnection = server.WaitForConnectionAsync();
+        ready.TrySetResult();
+        await waitForConnection;
         ProtocolRequest request = await LengthPrefixedJsonFraming.ReadAsync<ProtocolRequest>(server);
         await LengthPrefixedJsonFraming.WriteAsync(server, ProtocolResponse.Failure(
             request.RequestId,
@@ -146,10 +160,14 @@ public sealed class LegacyDaemonReplacementTests
         }
     }
 
-    private static async Task RunCurrentHandshakeAndCloseAsync(IpcEndpointDescriptor endpoint)
+    private static async Task RunCurrentHandshakeAndCloseAsync(
+        IpcEndpointDescriptor endpoint,
+        TaskCompletionSource ready)
     {
         await using var server = endpoint.CreateServerStream();
-        await server.WaitForConnectionAsync();
+        Task waitForConnection = server.WaitForConnectionAsync();
+        ready.TrySetResult();
+        await waitForConnection;
         ProtocolRequest request = await LengthPrefixedJsonFraming.ReadAsync<ProtocolRequest>(server);
         await LengthPrefixedJsonFraming.WriteAsync(server, ProtocolResponse.Success(
             request.RequestId,
