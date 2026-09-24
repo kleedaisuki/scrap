@@ -31,32 +31,29 @@ internal sealed class DaemonRequestDispatcher
             new EventId(1002, "DaemonMethodCompletion"),
             "Daemon method {Method} completed in {ElapsedMilliseconds} ms with {Outcome}; request payload was not logged.");
 
-    private static readonly HashSet<string> MutationMethods = new(StringComparer.Ordinal)
+    /// <summary>
+    /// 单一 method 策略同时约束日志白名单、初始化 barrier 和 mutation 串行化；未知 method 保留原有 read 路径。
+    /// One method policy controls the log allowlist, initialization barrier, and mutation serialization; unknown methods retain the read path.
+    /// </summary>
+    private static readonly Dictionary<string, MethodKind> MethodKinds = new(StringComparer.Ordinal)
     {
-        ProtocolMethods.ScopeCreate,
-        ProtocolMethods.ScopeRename,
-        ProtocolMethods.ScopeDelete,
-        ProtocolMethods.RecordSet,
-        ProtocolMethods.RecordRename,
-        ProtocolMethods.RecordDelete,
+        [ProtocolMethods.ScopeList] = MethodKind.Read,
+        [ProtocolMethods.ScopeCreate] = MethodKind.Mutation,
+        [ProtocolMethods.ScopeRename] = MethodKind.Mutation,
+        [ProtocolMethods.ScopeDelete] = MethodKind.Mutation,
+        [ProtocolMethods.RecordGet] = MethodKind.Read,
+        [ProtocolMethods.RecordSet] = MethodKind.Mutation,
+        [ProtocolMethods.RecordRename] = MethodKind.Mutation,
+        [ProtocolMethods.RecordDelete] = MethodKind.Mutation,
+        [ProtocolMethods.RecordList] = MethodKind.Read,
+        [ProtocolMethods.RecordSearch] = MethodKind.Read,
+        [ProtocolMethods.DaemonPing] = MethodKind.Control,
+        [ProtocolMethods.DaemonVersion] = MethodKind.Control,
+        [ProtocolMethods.DaemonShutdown] = MethodKind.Control,
     };
 
-    private static readonly HashSet<string> KnownMethods = new(StringComparer.Ordinal)
-    {
-        ProtocolMethods.ScopeList,
-        ProtocolMethods.ScopeCreate,
-        ProtocolMethods.ScopeRename,
-        ProtocolMethods.ScopeDelete,
-        ProtocolMethods.RecordGet,
-        ProtocolMethods.RecordSet,
-        ProtocolMethods.RecordRename,
-        ProtocolMethods.RecordDelete,
-        ProtocolMethods.RecordList,
-        ProtocolMethods.RecordSearch,
-        ProtocolMethods.DaemonPing,
-        ProtocolMethods.DaemonVersion,
-        ProtocolMethods.DaemonShutdown,
-    };
+    /// <summary>请求调度类别；默认值保持未知 method 的原 read 路径。 / Dispatch category; the default preserves the read path for unknown methods.</summary>
+    private enum MethodKind { Read, Mutation, Control }
 
     private readonly IDaemonOperations operations;
     private readonly RequestExecutionCoordinator coordinator;
@@ -122,13 +119,14 @@ internal sealed class DaemonRequestDispatcher
                     RequestsShutdown: true);
             }
 
-            if (!IsDaemonControlMethod(request.Method))
+            MethodKind kind = MethodKinds.GetValueOrDefault(request.Method);
+            if (kind != MethodKind.Control)
             {
                 await initializationState.WaitUntilSettledAsync(cancellationToken).ConfigureAwait(false);
                 initializationState.EnsureReady();
             }
 
-            object result = MutationMethods.Contains(request.Method)
+            object result = kind == MethodKind.Mutation
                 ? await coordinator.ExecuteMutationAsync(
                     token => ExecuteAsync(request, token),
                     cancellationToken).ConfigureAwait(false)
@@ -138,9 +136,10 @@ internal sealed class DaemonRequestDispatcher
 
             return new(ProtocolResponse.Success(request.RequestId, result, request.ProtocolVersion));
         }
-        catch (Exception exception) when (TryMapException(exception, out ProtocolError? error))
+        catch (Exception exception)
         {
-            outcome = error!.Code;
+            ProtocolError error = MapException(exception);
+            outcome = error.Code;
             LogMethodFailure(
                 logger,
                 loggedMethod,
@@ -229,29 +228,28 @@ internal sealed class DaemonRequestDispatcher
 
     private static string SafeRequestId(string? requestId) => string.IsNullOrEmpty(requestId) ? "invalid" : requestId;
 
-    private static bool TryMapException(Exception exception, out ProtocolError? error)
+    /// <summary>
+    /// 将所有请求失败映射为稳定且不泄露内部细节的协议错误；未知异常也必须生成响应。
+    /// Maps every request failure to a stable protocol error without leaking internals; unknown exceptions must also produce a response.
+    /// </summary>
+    private static ProtocolError MapException(Exception exception) => exception switch
     {
-        error = exception switch
-        {
-            ProtocolException protocol => new(protocol.ErrorCode, protocol.Message),
-            DaemonStoppingException => new(ProtocolErrorCodes.DaemonShuttingDown, "The daemon is shutting down."),
-            DaemonInitializationException initialization => new(initialization.ErrorCode, initialization.Message),
-            StorageNotFoundException storage => MapNotFound(storage),
-            ScopeNotEmptyException => new(ProtocolErrorCodes.ScopeNotEmpty, "Scope is not empty."),
-            StorageConflictException storage => MapConflict(storage),
-            StorageMigrationException => new(ProtocolErrorCodes.StoreUnavailable, "The store schema is unavailable."),
-            StorageException => new(ProtocolErrorCodes.StoreUnavailable, "The store is unavailable."),
-            SqliteException => new(ProtocolErrorCodes.StoreUnavailable, "The SQLite store is unavailable."),
-            MasterKeyUnavailableException or MasterKeyProviderException => new(ProtocolErrorCodes.KeyUnavailable, "The OS-protected master key is unavailable."),
-            RecordAuthenticationException or EncryptedRecordFormatException or CryptographicException or DecoderFallbackException => new(ProtocolErrorCodes.CryptoError, "Encrypted record data is unavailable."),
-            DomainException domain => MapDomainError(domain.Error),
-            JsonException => new(ProtocolErrorCodes.InvalidParams, "Method parameters are invalid."),
-            OperationCanceledException => new(ProtocolErrorCodes.InvalidRequest, "Request was cancelled."),
-            _ => new(ProtocolErrorCodes.InternalError, "An internal daemon error occurred."),
-        };
-
-        return true;
-    }
+        ProtocolException protocol => new(protocol.ErrorCode, protocol.Message),
+        DaemonStoppingException => new(ProtocolErrorCodes.DaemonShuttingDown, "The daemon is shutting down."),
+        DaemonInitializationException initialization => new(initialization.ErrorCode, initialization.Message),
+        StorageNotFoundException storage => MapNotFound(storage),
+        ScopeNotEmptyException => new(ProtocolErrorCodes.ScopeNotEmpty, "Scope is not empty."),
+        StorageConflictException storage => MapConflict(storage),
+        StorageMigrationException => new(ProtocolErrorCodes.StoreUnavailable, "The store schema is unavailable."),
+        StorageException => new(ProtocolErrorCodes.StoreUnavailable, "The store is unavailable."),
+        SqliteException => new(ProtocolErrorCodes.StoreUnavailable, "The SQLite store is unavailable."),
+        MasterKeyUnavailableException or MasterKeyProviderException => new(ProtocolErrorCodes.KeyUnavailable, "The OS-protected master key is unavailable."),
+        RecordAuthenticationException or EncryptedRecordFormatException or CryptographicException or DecoderFallbackException => new(ProtocolErrorCodes.CryptoError, "Encrypted record data is unavailable."),
+        DomainException domain => MapDomainError(domain.Error),
+        JsonException => new(ProtocolErrorCodes.InvalidParams, "Method parameters are invalid."),
+        OperationCanceledException => new(ProtocolErrorCodes.InvalidRequest, "Request was cancelled."),
+        _ => new(ProtocolErrorCodes.InternalError, "An internal daemon error occurred."),
+    };
 
     private static ProtocolError MapNotFound(StorageNotFoundException exception) => exception.Entity switch
     {
@@ -270,10 +268,7 @@ internal sealed class DaemonRequestDispatcher
 
     private static string SafeMethodForLog(string? method) => string.IsNullOrEmpty(method)
         ? "<invalid>"
-        : KnownMethods.Contains(method) ? method : "<unknown>";
-
-    private static bool IsDaemonControlMethod(string method) => method is
-        ProtocolMethods.DaemonPing or ProtocolMethods.DaemonVersion or ProtocolMethods.DaemonShutdown;
+        : MethodKinds.ContainsKey(method) ? method : "<unknown>";
 
     private static DaemonInitializationState CreateReadyInitializationState()
     {

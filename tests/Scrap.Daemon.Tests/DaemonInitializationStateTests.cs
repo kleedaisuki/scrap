@@ -85,4 +85,31 @@ public sealed class DaemonInitializationStateTests
 
         Assert.Null(result.Response.Error);
     }
+
+    /// <summary>
+    /// 未知 method 不能绕过业务请求的初始化屏障；完成初始化后仍返回原有 method_not_found。
+    /// An unknown method cannot bypass the business initialization barrier and still returns method_not_found afterward.
+    /// </summary>
+    [Fact]
+    public async Task UnknownMethodWaitsForInitializationBeforeMethodNotFound()
+    {
+        var initialization = new DaemonInitializationState();
+        using var coordinator = new RequestExecutionCoordinator(new DaemonRuntimeState());
+        var dispatcher = new DaemonRequestDispatcher(
+            new StubDaemonOperations(),
+            coordinator,
+            NullLogger<DaemonRequestDispatcher>.Instance,
+            "test",
+            initialization);
+
+        Task<DaemonDispatchResult> pending = dispatcher.DispatchAsync(
+            ProtocolRequest.Create("unknown", "record.unknown", new { }),
+            CancellationToken.None);
+        await Task.Yield();
+        Assert.False(pending.IsCompleted);
+
+        initialization.SetReady();
+        DaemonDispatchResult result = await pending.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(ProtocolErrorCodes.MethodNotFound, result.Response.Error?.Code);
+    }
 }

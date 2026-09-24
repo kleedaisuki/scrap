@@ -150,6 +150,27 @@ public sealed class DaemonRequestDispatcherTests
     }
 
     /// <summary>
+    /// 未知 method 仍返回 method_not_found，但日志仅记录固定占位符而非任意 wire 名称。
+    /// Unknown methods still return method_not_found while logs use a fixed placeholder instead of an arbitrary wire name.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsyncRedactsUnknownMethodInLogs()
+    {
+        var logger = new CollectingLogger<DaemonRequestDispatcher>();
+        using var coordinator = new RequestExecutionCoordinator(new DaemonRuntimeState());
+        var dispatcher = CreateDispatcher(new FakeDaemonOperations(), coordinator, logger);
+        const string unknownMethod = "secret-user-supplied-method";
+
+        DaemonDispatchResult dispatch = await dispatcher.DispatchAsync(
+            ProtocolRequest.Create(RequestId, unknownMethod, new EmptyParameters()),
+            CancellationToken.None);
+
+        AssertError(dispatch, ProtocolErrorCodes.MethodNotFound);
+        Assert.Contains(logger.Entries, entry => entry.Message.Contains("<unknown>", StringComparison.Ordinal));
+        Assert.All(logger.Entries, entry => Assert.DoesNotContain(unknownMethod, entry.Message, StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// 验证与 method DTO 不匹配的 object params 返回 <c>invalid_params</c>，且 handler 不会运行。
     /// / Verifies that object params incompatible with the method DTO return <c>invalid_params</c> without running the handler.
     /// </summary>
