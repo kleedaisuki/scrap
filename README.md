@@ -53,11 +53,12 @@ dotnet test Scrap.slnx -c Release --no-build
 发布页位于 `website/`，需要 Node.js 22.12+ 与仓库声明的 pnpm：
 
 ```bash
+pnpm install --frozen-lockfile
 pnpm --dir website dev
 pnpm --dir website run verify
 ```
 
-站点生成到 `website/dist/`。GitHub Actions 验证桌面端和网站；主分支部署 GitHub Pages，`vX.Y.Z` tag 构建平台产物并创建 GitHub Release。
+从仓库根目录安装依赖，以便使用受版本控制的 `pnpm-lock.yaml`；验证和开发命令也在根目录执行。站点生成到 `website/dist/`。GitHub Actions 验证桌面端和网站；主分支中的站点相关变更部署到 GitHub Pages，`vX.Y.Z` tag 构建平台产物并创建 GitHub Release。
 
 ## 工程结构
 
