@@ -55,3 +55,5 @@ if (Test-Path -LiteralPath $output) {
 }
 
 Write-Host "Run-root guard passed for all fixture modes and external paths; preserved $sentinel"
+# 预期的子进程退出码 2 不应成为此脚本的退出码。 / Expected child exit code 2 must not become this script's exit code.
+exit 0
