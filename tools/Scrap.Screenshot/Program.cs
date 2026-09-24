@@ -45,17 +45,17 @@ internal static class Program
 
         Directory.CreateDirectory(preferenceDirectory);
 
-        AppBuilder.Configure<App>()
-            .UseHeadless(new AvaloniaHeadlessPlatformOptions
-            {
-                UseHeadlessDrawing = false,
-            })
-            .UseSkia()
-            .WithInterFont()
-            .SetupWithoutStarting();
-
         try
         {
+            AppBuilder.Configure<App>()
+                .UseHeadless(new AvaloniaHeadlessPlatformOptions
+                {
+                    UseHeadlessDrawing = false,
+                })
+                .UseSkia()
+                .WithInterFont()
+                .SetupWithoutStarting();
+
             CaptureLanguage(outputDirectory, preferenceDirectory, "zh-CN", AppLanguage.SimplifiedChinese, AppTheme.Light);
             CaptureLanguage(outputDirectory, preferenceDirectory, "en-US", AppLanguage.English, AppTheme.Dark);
             return 0;
@@ -69,6 +69,7 @@ internal static class Program
         }
     }
 
+    /// <summary>为一种语言与主题生成约定的四张截图。Produces the four contracted captures for one language and theme.</summary>
     private static void CaptureLanguage(
         string outputDirectory,
         string preferenceDirectory,
@@ -84,6 +85,7 @@ internal static class Program
         Capture(languageDirectory, preferenceDirectory, "04-temporary-reveal.png", language, theme, CaptureScene.TemporaryReveal);
     }
 
+    /// <summary>为单个状态使用独立偏好并在失败时关闭窗口。Uses isolated preferences for one scene and closes its window on failure.</summary>
     private static void Capture(
         string outputDirectory,
         string preferenceDirectory,
@@ -107,30 +109,37 @@ internal static class Program
             Position = new Avalonia.PixelPoint(0, 0),
         };
 
-        window.Show();
-        Dispatcher.UIThread.RunJobs();
-
-        var viewModel = (MainWindowViewModel)window.DataContext!;
-        ComposeScene(window, viewModel, scene);
-        Dispatcher.UIThread.RunJobs();
-
-        if (scene != CaptureScene.CreateRecord && viewModel.SelectedRecord is null)
+        try
         {
-            throw new InvalidOperationException("The selected showcase record did not load before capture.");
-        }
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
 
-        using var frame = window.CaptureRenderedFrame()
-            ?? throw new InvalidOperationException("Avalonia did not produce a rendered frame.");
-        if (frame.PixelSize != new PixelSize(Width, Height))
+            var viewModel = (MainWindowViewModel)window.DataContext!;
+            ComposeScene(window, viewModel, scene);
+            Dispatcher.UIThread.RunJobs();
+
+            if (scene != CaptureScene.CreateRecord && viewModel.SelectedRecord is null)
+            {
+                throw new InvalidOperationException("The selected showcase record did not load before capture.");
+            }
+
+            using var frame = window.CaptureRenderedFrame()
+                ?? throw new InvalidOperationException("Avalonia did not produce a rendered frame.");
+            if (frame.PixelSize != new PixelSize(Width, Height))
+            {
+                throw new InvalidOperationException($"Expected {Width}x{Height}, got {frame.PixelSize.Width}x{frame.PixelSize.Height}.");
+            }
+
+            frame.Save(Path.Combine(outputDirectory, fileName), PngBitmapEncoderOptions.Default);
+        }
+        finally
         {
-            throw new InvalidOperationException($"Expected {Width}x{Height}, got {frame.PixelSize.Width}x{frame.PixelSize.Height}.");
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
         }
-
-        frame.Save(Path.Combine(outputDirectory, fileName), PngBitmapEncoderOptions.Default);
-        window.Close();
-        Dispatcher.UIThread.RunJobs();
     }
 
+    /// <summary>通过真实视图模型操作配置截图状态。Configures capture states through real view-model interactions.</summary>
     private static void ComposeScene(MainWindow window, MainWindowViewModel viewModel, CaptureScene scene)
     {
         switch (scene)
@@ -164,18 +173,21 @@ internal static class Program
         }
     }
 
+    /// <summary>选择唯一的展示记录，并处理待执行的 UI 作业。Selects the unique showcase record and drains pending UI jobs.</summary>
     private static void SelectRecord(MainWindowViewModel viewModel, string key)
     {
         viewModel.SelectedCandidate = viewModel.Candidates.Single(candidate => candidate.Key == key);
         Dispatcher.UIThread.RunJobs();
     }
 
+    /// <summary>更改一个搜索 scope 的选择状态。Changes one search-scope selection.</summary>
     private static void SetSearchScope(MainWindowViewModel viewModel, string name, bool selected)
     {
         viewModel.SearchScopeChoices.Single(choice => choice.Name == name).IsSelected = selected;
         Dispatcher.UIThread.RunJobs();
     }
 
+    /// <summary>执行应在展示场景中可用的命令。Executes a command expected to be available in the showcase scene.</summary>
     private static void Execute(System.Windows.Input.ICommand command)
     {
         if (!command.CanExecute(null))
@@ -225,6 +237,7 @@ internal sealed class ShowcaseScrapClient : IScrapClient
         new("personal", "ssh-config", "Host scrap-dev\n  HostName dev.local\n  User klee", RecordPresentation.Plain, LocalTime(2026, 9, 10, 14, 10), 3),
     ];
 
+    /// <summary>创建展示记录的本地时区时间戳。Creates a local-time timestamp for a showcase record.</summary>
     private static DateTimeOffset LocalTime(int year, int month, int day, int hour, int minute)
     {
         var wallClock = new DateTime(year, month, day, hour, minute, 0, DateTimeKind.Unspecified);
