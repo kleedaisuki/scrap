@@ -218,18 +218,9 @@ internal sealed class DaemonRequestDispatcher
         return result;
     }
 
-    private static Task<TResult> ValidateAndRun<TParams, TResult>(
-        ProtocolRequest request,
-        Func<Task<TResult>> operation)
-        where TParams : notnull
-        where TResult : notnull
-    {
-        Deserialize<TParams>(request);
-        return operation();
-    }
-
+    /// <summary>仅用于已校验的请求；异常路径另行规范化无效 ID。 / Only for validated requests; the exception path normalizes invalid IDs separately.</summary>
     private static DaemonDispatchResult Failure(string requestId, string code, string message, int protocolVersion) =>
-        new(ProtocolResponse.Failure(SafeRequestId(requestId), new ProtocolError(code, message), SupportedResponseVersion(protocolVersion)));
+        new(ProtocolResponse.Failure(requestId, new ProtocolError(code, message), SupportedResponseVersion(protocolVersion)));
 
     private static int SupportedResponseVersion(int requested) =>
         requested is >= ProtocolConstants.MinimumSupportedVersion and <= ProtocolConstants.CurrentVersion
