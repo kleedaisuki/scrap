@@ -520,8 +520,19 @@ jobs:
           # 将已验证的签名状态写入每个 Release，而不是要求用户翻阅 CI 日志。
           notes_file="$RUNNER_TEMP/release-notes.md"
           gh release view "${GITHUB_REF_NAME}" --json body --jq .body > "$notes_file"
-          if ! grep -q '^## Windows trust status / Windows 信任状态$' "$notes_file"; then
-            if [[ "$WINDOWS_SIGNING_CONFIGURED" == "true" ]]; then
+          # 重跑可能更换已上传资产及其签名状态；每次从本次验证结果重建本节，同时保留其余发布说明。
+          # A rerun can replace assets and their signing state; rebuild this section from this run while preserving other notes.
+          python3 - "$notes_file" <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          body = path.read_text(encoding="utf-8")
+          body = re.sub(r"(?ms)^## Windows trust status / Windows 信任状态\n.*?(?=^## |\Z)", "", body)
+          path.write_text(body.rstrip() + "\n", encoding="utf-8")
+          PY
+          if [[ "$WINDOWS_SIGNING_CONFIGURED" == "true" ]]; then
               cat >> "$notes_file" <<'EOF'
 
           ## Windows trust status / Windows 信任状态
@@ -532,7 +543,7 @@ jobs:
 
           [Code signing policy](https://github.com/kleedaisuki/scrap/blob/main/docs/code-signing-policy.md)
           EOF
-            else
+          else
               cat >> "$notes_file" <<'EOF'
 
           ## Windows trust status / Windows 信任状态
@@ -543,9 +554,8 @@ jobs:
 
           [Code signing policy](https://github.com/kleedaisuki/scrap/blob/main/docs/code-signing-policy.md)
           EOF
-            fi
-            gh release edit "${GITHUB_REF_NAME}" --notes-file "$notes_file"
           fi
+          gh release edit "${GITHUB_REF_NAME}" --notes-file "$notes_file"
 
           installer="scrap-v${{ needs.metadata.outputs.version }}-win-x64.msi"
           mkdir released-installer

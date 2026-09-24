@@ -272,12 +272,19 @@ public sealed class ScrapClient : IAsyncDisposable
     /// <param name="scope">精确 scope 名称。 / Exact scope name.</param>
     /// <param name="key">大小写敏感的精确 key。 / Exact case-sensitive key.</param>
     /// <param name="cancellationToken">取消请求的标记。 / Token that cancels the request.</param>
-    /// <returns>包含 value 的 record。 / The record including its value.</returns>
-    public Task<RecordGetResult> GetRecordAsync(
+    /// <returns>包含不可由调用方修改的 value 快照的 record。 / The record with a caller-immutable snapshot of its values.</returns>
+    public async Task<RecordGetResult> GetRecordAsync(
         string scope,
         string key,
-        CancellationToken cancellationToken = default) =>
-        SendAsync<RecordGetParams, RecordGetResult>(ProtocolMethods.RecordGet, new(scope, key), cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        RecordGetResult result = await SendAsync<RecordGetParams, RecordGetResult>(
+            ProtocolMethods.RecordGet, new(scope, key), cancellationToken).ConfigureAwait(false);
+        return new RecordGetResult(result.Record with
+        {
+            Values = Array.AsReadOnly(result.Record.Values.ToArray()),
+        });
+    }
 
     /// <summary>使用旧标量 API 新增 record，或只替换现有 record 的索引 0。 / Creates a record through the legacy scalar API, or replaces only index zero of an existing record.</summary>
     /// <param name="scope">精确 scope 名称。 / Exact scope name.</param>
@@ -302,7 +309,7 @@ public sealed class ScrapClient : IAsyncDisposable
     /// <summary>新增或原子替换 record 的完整有序 value 列表。 / Creates or atomically replaces a record's complete ordered value list.</summary>
     /// <param name="scope">精确 scope 名称。 / Exact scope name.</param>
     /// <param name="key">大小写敏感的精确 key。 / Exact case-sensitive key.</param>
-    /// <param name="values">非空有序列表；保留重复项与空字符串。 / Non-empty ordered list; duplicates and empty strings are preserved.</param>
+    /// <param name="values">非空有序列表；在首个异步等待前复制，保留重复项与空字符串。 / Non-empty ordered list; copied before the first asynchronous wait, preserving duplicates and empty strings.</param>
     /// <param name="presentation">应用于所有 value 的展示策略。 / Presentation policy applied to every value.</param>
     /// <param name="expectedRevision">完整列表写入的可选 revision 前置条件。 / Optional revision precondition for the whole-list write.</param>
     /// <param name="cancellationToken">取消请求的标记。 / Token that cancels the request.</param>
@@ -316,9 +323,10 @@ public sealed class ScrapClient : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(values);
+        IReadOnlyList<string> snapshot = Array.AsReadOnly(values.ToArray());
         return SendAsync<RecordSetParams, RecordSetResult>(
             ProtocolMethods.RecordSet,
-            new RecordSetParams(scope, key, null, presentation, expectedRevision) { Values = values },
+            new RecordSetParams(scope, key, null, presentation, expectedRevision) { Values = snapshot },
             cancellationToken);
     }
 

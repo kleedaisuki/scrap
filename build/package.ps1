@@ -22,6 +22,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "Packaging.Common.ps1")
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $outputRoot = [IO.Path]::GetFullPath($OutputDirectory)
 $workRoot = Join-Path $outputRoot (".package-" + [Guid]::NewGuid().ToString("N"))
@@ -127,36 +128,6 @@ function Publish-EntryPoint {
     Copy-Item -LiteralPath $entryPoint -Destination (Join-Path $payloadRoot "$PublicName$suffix")
 }
 
-# 签名前验证三个公开入口使用同一产品身份；CA 与托管签名策略不能替我们修复元数据漂移。
-# Verify one product identity across public entry points before signing; a CA or managed policy cannot repair metadata drift.
-function Assert-WindowsEntryPointMetadata {
-    param(
-        [Parameter(Mandatory)] [string[]] $Files,
-        [Parameter(Mandatory)] [string] $ReleaseVersion
-    )
-
-    $baselineProductVersion = $null
-    $baselineFileVersion = $null
-    foreach ($file in $Files) {
-        $metadata = [Diagnostics.FileVersionInfo]::GetVersionInfo($file)
-        if (-not [string]::Equals($metadata.ProductName, "Scrap", [StringComparison]::Ordinal) -or
-            -not [string]::Equals($metadata.FileDescription, "Scrap", [StringComparison]::Ordinal) -or
-            -not [string]::Equals($metadata.CompanyName, "MoeSegfault", [StringComparison]::Ordinal)) {
-            throw "Windows entry point '$([IO.Path]::GetFileName($file))' has inconsistent product metadata."
-        }
-        if (-not $metadata.ProductVersion.StartsWith($ReleaseVersion, [StringComparison]::Ordinal)) {
-            throw "Windows entry point '$([IO.Path]::GetFileName($file))' does not carry release version '$ReleaseVersion'."
-        }
-
-        if ($null -eq $baselineProductVersion) { $baselineProductVersion = $metadata.ProductVersion }
-        if ($null -eq $baselineFileVersion) { $baselineFileVersion = $metadata.FileVersion }
-        if (-not [string]::Equals($metadata.ProductVersion, $baselineProductVersion, [StringComparison]::Ordinal) -or
-            -not [string]::Equals($metadata.FileVersion, $baselineFileVersion, [StringComparison]::Ordinal)) {
-            throw "Windows entry points do not share one product and file version."
-        }
-    }
-}
-
 try {
     New-Item -ItemType Directory -Path $payloadRoot -Force | Out-Null
 
@@ -165,8 +136,8 @@ try {
     Publish-EntryPoint -Project "src/Scrap.Gui/Scrap.Gui.csproj" -BuildName "Scrap.Gui" -PublicName "scrap-gui"
 
     if ($isWindowsTarget) {
-        $windowsEntryPoints = @(Get-ChildItem -LiteralPath $payloadRoot -Filter "*.exe" -File).FullName
-        Assert-WindowsEntryPointMetadata -Files $windowsEntryPoints -ReleaseVersion $Version
+        Assert-ScrapWindowsEntryPointMetadata -PayloadRoot $payloadRoot -ReleaseVersion $Version
+        $windowsEntryPoints = @("scrap.exe", "scrapd.exe", "scrap-gui.exe") | ForEach-Object { Join-Path $payloadRoot $_ }
         Invoke-CodeSigning -Files $windowsEntryPoints
     }
 

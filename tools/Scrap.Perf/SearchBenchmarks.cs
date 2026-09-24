@@ -1,19 +1,11 @@
 using System.Diagnostics;
-using System.Globalization;
-using System.Reflection;
-using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using Microsoft.Data.Sqlite;
-using Microsoft.Extensions.Hosting;
 using Scrap.Client;
 using Scrap.Crypto;
-using Scrap.Daemon;
 using Scrap.Domain;
 using Scrap.Platform.Ipc;
 using Scrap.Platform.Paths;
-using Scrap.Platform.Processes;
-using Scrap.Platform.Secrets;
 using Scrap.Protocol;
 using Scrap.Storage.Sqlite;
 using DomainCase = Scrap.Domain.CaseSensitivity;
@@ -77,8 +69,7 @@ internal static partial class Benchmarks
                 scenarios.Add(new SearchScenarioResults(name, scopes.Count == 0 ? count : count * 3 / ScopeCount, resultCount, timeouts, Summarize(samples)));
             }
 
-            await client.ShutdownAsync();
-            if (!process.WaitForExit(10_000)) throw new TimeoutException("Search daemon child did not exit.");
+            await StopAsync(process, client, "Search daemon child did not exit.");
             results.Add(new SearchScaleResults(count, scenarios, MeasureSearchPhases(paths, count)));
         }
         return results;

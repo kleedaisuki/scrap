@@ -81,13 +81,6 @@ internal static partial class Benchmarks
         return client;
     }
 
-    /// <summary>Requests graceful shutdown and rejects a daemon that does not exit promptly. / 请求优雅关闭，并拒绝未及时退出的守护进程。</summary>
-    private static async Task StopAsync(Process process, ScrapClient client, string timeoutMessage)
-    {
-        await client.ShutdownAsync();
-        if (!process.WaitForExit(10_000)) throw new TimeoutException(timeoutMessage);
-    }
-
     /// <summary>Samples post-operation process memory and CPU time for one fixed-duration run. / 在一个固定时长运行中采样操作后的进程内存与 CPU 时间。</summary>
     private static async Task<ResourceRun> SampleResourcesAsync(
         Process process,

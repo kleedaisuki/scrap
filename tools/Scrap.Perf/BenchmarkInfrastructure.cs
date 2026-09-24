@@ -1,25 +1,10 @@
 using System.Diagnostics;
-using System.Globalization;
 using System.Reflection;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
-using Microsoft.Extensions.Hosting;
 using Scrap.Client;
 using Scrap.Crypto;
-using Scrap.Daemon;
-using Scrap.Domain;
-using Scrap.Platform.Ipc;
-using Scrap.Platform.Paths;
 using Scrap.Platform.Processes;
 using Scrap.Platform.Secrets;
-using Scrap.Protocol;
-using Scrap.Storage.Sqlite;
-using DomainCase = Scrap.Domain.CaseSensitivity;
-using DomainMode = Scrap.Domain.SearchMode;
-using ProtocolCase = Scrap.Protocol.CaseSensitivity;
-using ProtocolMode = Scrap.Protocol.SearchMode;
 
 /// <summary>Provides shared benchmark infrastructure and isolation guards. / 提供共享基准基础设施与隔离保护。</summary>
 internal static partial class Benchmarks
@@ -36,15 +21,7 @@ internal static partial class Benchmarks
     /// <summary>Rejects a benchmark root outside this repository's .temp or .cache directory. / 拒绝仓库 .temp 或 .cache 之外的基准根目录。</summary>
     internal static string RequireIsolatedRoot(string root)
     {
-        string candidate = Path.GetFullPath(root);
-        string repository = FindRepositoryRoot();
-        string tempRoot = Path.Combine(repository, ".temp");
-        string cacheRoot = Path.Combine(repository, ".cache");
-        if (!IsWithin(candidate, tempRoot) && !IsWithin(candidate, cacheRoot))
-        {
-            throw new ArgumentException("Benchmark data must stay under the repository .temp or .cache directory.", nameof(root));
-        }
-
+        string candidate = RequireIsolatedPath(root, nameof(root));
         Directory.CreateDirectory(candidate);
         return candidate;
     }
@@ -66,23 +43,32 @@ internal static partial class Benchmarks
     /// <summary>Rejects a benchmark file outside this repository's .temp or .cache directory. / 拒绝仓库 .temp 或 .cache 之外的基准文件。</summary>
     internal static string RequireIsolatedFile(string path)
     {
+        return RequireIsolatedPath(path, nameof(path));
+    }
+
+    /// <summary>Applies the single repository-local path policy to input and output paths. / 对输入和输出路径统一应用仓库本地路径策略。</summary>
+    private static string RequireIsolatedPath(string path, string parameterName)
+    {
         string candidate = Path.GetFullPath(path);
         string repository = FindRepositoryRoot();
         if (!IsWithin(candidate, Path.Combine(repository, ".temp")) &&
             !IsWithin(candidate, Path.Combine(repository, ".cache")))
         {
-            throw new ArgumentException("Benchmark files must stay under the repository .temp or .cache directory.", nameof(path));
+            throw new ArgumentException("Benchmark paths must stay under the repository .temp or .cache directory.", parameterName);
         }
 
         return candidate;
     }
 
-    /// <summary>Tests a canonical path against a canonical repository-owned root. / 检查规范路径是否位于仓库所属根目录内。</summary>
+    /// <summary>Tests a normalized path against a normalized repository-owned root using the host's case rules. / 按宿主系统的大小写规则，检查规范化路径是否位于仓库所属根目录内。</summary>
     private static bool IsWithin(string candidate, string root)
     {
         string canonicalRoot = Path.GetFullPath(root);
-        return candidate.Equals(canonicalRoot, StringComparison.OrdinalIgnoreCase) ||
-            candidate.StartsWith(canonicalRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        StringComparison comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        return candidate.Equals(canonicalRoot, comparison) ||
+            candidate.StartsWith(canonicalRoot + Path.DirectorySeparatorChar, comparison);
     }
 
     /// <summary>Writes indented JSON and creates its parent directory. / 写入缩进 JSON，并创建父目录。</summary>
@@ -120,6 +106,13 @@ internal static partial class Benchmarks
         info.ArgumentList.Add(root);
         info.ArgumentList.Add(provider);
         return Process.Start(info) ?? throw new InvalidOperationException("Could not start daemon child.");
+    }
+
+    /// <summary>Requests graceful shutdown and waits for the harness-owned daemon; callers retain mode-specific exit-code checks. / 请求优雅关闭并等待工具所属守护进程；各模式自行保留退出码检查。</summary>
+    internal static async Task StopAsync(Process process, ScrapClient client, string timeoutMessage)
+    {
+        await client.ShutdownAsync();
+        if (!process.WaitForExit(10_000)) throw new TimeoutException(timeoutMessage);
     }
 
     /// <summary>Creates a fixture profile root and applies the same Windows ACL precondition as production paths. / 创建夹具配置根目录，并应用与生产路径相同的 Windows ACL 前置条件。</summary>

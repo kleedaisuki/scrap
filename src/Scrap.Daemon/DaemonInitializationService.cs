@@ -9,8 +9,8 @@ using Scrap.Storage.Sqlite;
 namespace Scrap.Daemon;
 
 /// <summary>
-/// 在 listener 启动前尝试初始化 operations，但缓存失败而不是让 client 只得到连接超时。
-/// / Attempts operations initialization before the listener starts, caching failures instead of exposing only a connection timeout.
+/// 在 listener 已绑定后初始化 operations，并缓存失败，使 client 获得结构化错误而非连接超时。<br/>
+/// Initializes operations after the listener binds and caches failures so clients receive structured errors rather than connection timeouts.
 /// </summary>
 internal sealed class DaemonInitializationService : IHostedService
 {

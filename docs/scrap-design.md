@@ -2,6 +2,8 @@
 
 > 一个 local-first、scriptable 的本地秘密与字段存储：CLI 面向程序组合，GUI 面向人类发现，`scrapd` 是唯一数据权威。
 
+> **版本提示（2026-09-24）：**本文保留最初单值协议设计及其推理；下文的单一 `Value`、v1 wire 示例和单值 CLI 示例不能单独作为当前 v0.3 行为规范。当前实现以有序、非空的 `Values` 为记录值，使用 v2 协议并继续接受 v1；现行契约与验证入口见 [v0.3 仓库映射](v0.3-repository-map.md)、[维护治理](maintenance-governance.md)及 `src/Scrap.Domain/TextValues.cs`、`src/Scrap.Protocol/RecordContracts.cs`。在彻底修订本文之前，遇到冲突以实现及测试为准。
+
 ## 1. 产品定义
 
 `scrap` 用来保存密码、令牌、账户标识、部署 ID、服务端点等本地开发过程中需要反复取用的短文本值。

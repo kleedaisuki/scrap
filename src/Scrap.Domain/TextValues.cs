@@ -2,6 +2,10 @@ using System.Text;
 
 namespace Scrap.Domain;
 
+/// <summary>
+/// 统一执行不规范化文本的严格 UTF-8 边界校验；不能用默认替换式编码掩盖非法代理项。<br/>
+/// Centralizes strict UTF-8 validation for unnormalized text; replacement encoding must not hide invalid surrogates.
+/// </summary>
 internal static class TextRules
 {
     private static readonly UTF8Encoding StrictUtf8 = new(
@@ -12,8 +16,20 @@ internal static class TextRules
         string? value,
         string field,
         int maximumUtf8Bytes,
-        bool allowEmpty)
+        bool allowEmpty) => Validate(value, field, maximumUtf8Bytes, allowEmpty, out _);
+
+    /// <summary>
+    /// 严格校验文本并返回已验证的 UTF-8 大小，使总量限制无需再次编码秘密值。<br/>
+    /// Strictly validates text and returns its verified UTF-8 size so aggregate limits need not re-encode secret values.
+    /// </summary>
+    internal static DomainError? Validate(
+        string? value,
+        string field,
+        int maximumUtf8Bytes,
+        bool allowEmpty,
+        out int byteCount)
     {
+        byteCount = 0;
         if (value is null || (!allowEmpty && value.Length == 0))
         {
             return new DomainError(
@@ -22,7 +38,6 @@ internal static class TextRules
                 field);
         }
 
-        int byteCount;
         try
         {
             byteCount = StrictUtf8.GetByteCount(value);
@@ -158,8 +173,15 @@ public sealed class RecordValue : IEquatable<RecordValue>
     /// <param name="value">原始值。 / Raw value.</param>
     /// <returns>值或结构化校验错误。 / The value or a structured validation error.</returns>
     public static DomainResult<RecordValue> TryCreate(string? value)
+        => TryCreate(value, out _);
+
+    /// <summary>
+    /// 为有序值列表复用严格校验得到的字节数；失败时该输出不可使用。<br/>
+    /// Reuses the strictly validated byte count for ordered value lists; the output is not meaningful on failure.
+    /// </summary>
+    internal static DomainResult<RecordValue> TryCreate(string? value, out int utf8Bytes)
     {
-        var error = TextRules.Validate(value, "value", MaximumUtf8Bytes, allowEmpty: true);
+        var error = TextRules.Validate(value, "value", MaximumUtf8Bytes, allowEmpty: true, out utf8Bytes);
         return error is null
             ? DomainResult.Success(new RecordValue(value!))
             : DomainResult.Failure<RecordValue>(error);
@@ -181,10 +203,10 @@ public sealed class RecordValue : IEquatable<RecordValue>
 }
 
 /// <summary>
-/// 表示 record 的非空、有序秘密值列表；保留重复项与空字符串。<br/>
-/// Represents a non-empty ordered list of secret record values; duplicates and empty strings are preserved.
+/// 表示 record 的非空、有序秘密值列表；保留重复项与空字符串，并按顺序比较。<br/>
+/// Represents a non-empty ordered list of secret record values; duplicates and empty strings are preserved, and equality respects order.
 /// </summary>
-public sealed class RecordValues : IReadOnlyList<RecordValue>
+public sealed class RecordValues : IReadOnlyList<RecordValue>, IEquatable<RecordValues>
 {
     /// <summary>单个 record 允许的最大 value 数量。 / Maximum number of values in one record.</summary>
     public const int MaximumCount = 32;
@@ -233,14 +255,14 @@ public sealed class RecordValues : IReadOnlyList<RecordValue>
         var aggregateBytes = 0;
         for (var index = 0; index < values.Count; index++)
         {
-            DomainResult<RecordValue> item = RecordValue.TryCreate(values[index]);
+            DomainResult<RecordValue> item = RecordValue.TryCreate(values[index], out var utf8Bytes);
             if (item.IsFailure)
             {
                 return DomainResult.Failure<RecordValues>(item.Error! with { Field = $"values[{index}]" });
             }
 
             parsed[index] = item.Value;
-            aggregateBytes += Encoding.UTF8.GetByteCount(item.Value.Value);
+            aggregateBytes += utf8Bytes;
             if (aggregateBytes > MaximumAggregateUtf8Bytes)
             {
                 return DomainResult.Failure<RecordValues>(new DomainError(
@@ -258,6 +280,32 @@ public sealed class RecordValues : IReadOnlyList<RecordValue>
 
     /// <inheritdoc />
     System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => values.GetEnumerator();
+
+    /// <summary>
+    /// 按原始顺序比较每个值；重复项和空值也参与身份比较。<br/>
+    /// Compares every value in order; duplicates and empty values also contribute to equality.
+    /// </summary>
+    /// <param name="other">待比较列表。 / The list to compare.</param>
+    /// <returns>两个有序列表是否相等。 / Whether the ordered lists are equal.</returns>
+    public bool Equals(RecordValues? other) =>
+        other is not null &&
+        (ReferenceEquals(this, other) ||
+         (values.Length == other.values.Length && values.SequenceEqual(other.values)));
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => Equals(obj as RecordValues);
+
+    /// <inheritdoc />
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        foreach (var value in values)
+        {
+            hash.Add(value.Value, StringComparer.Ordinal);
+        }
+
+        return hash.ToHashCode();
+    }
 
     /// <summary>返回固定遮盖文本。 / Returns fixed redacted text.</summary>
     public override string ToString() => $"[REDACTED:{Count}]";

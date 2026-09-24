@@ -1,25 +1,7 @@
 using System.Diagnostics;
-using System.Globalization;
-using System.Reflection;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
-using Microsoft.Data.Sqlite;
-using Microsoft.Extensions.Hosting;
 using Scrap.Client;
-using Scrap.Crypto;
-using Scrap.Daemon;
-using Scrap.Domain;
 using Scrap.Platform.Ipc;
 using Scrap.Platform.Paths;
-using Scrap.Platform.Processes;
-using Scrap.Platform.Secrets;
-using Scrap.Protocol;
-using Scrap.Storage.Sqlite;
-using DomainCase = Scrap.Domain.CaseSensitivity;
-using DomainMode = Scrap.Domain.SearchMode;
-using ProtocolCase = Scrap.Protocol.CaseSensitivity;
-using ProtocolMode = Scrap.Protocol.SearchMode;
 
 /// <summary>Daemon startup and CRUD measurements / 守护进程启动与 CRUD 测量.</summary>
 internal static partial class Benchmarks
@@ -69,8 +51,7 @@ internal static partial class Benchmarks
             }
         }
 
-        await client.ShutdownAsync();
-        if (!process.WaitForExit(10_000)) throw new TimeoutException("Daemon child did not exit.");
+        await StopAsync(process, client, "Daemon child did not exit.");
         if (process.ExitCode != 0) throw new InvalidOperationException($"Daemon child exited {process.ExitCode}: {process.StandardError.ReadToEnd()}");
         return readyMs;
     }
@@ -126,8 +107,7 @@ internal static partial class Benchmarks
         }
         double deleteSeconds = Stopwatch.GetElapsedTime(phase).TotalSeconds;
 
-        await client.ShutdownAsync();
-        if (!process.WaitForExit(10_000)) throw new TimeoutException("CRUD daemon child did not exit.");
+        await StopAsync(process, client, "CRUD daemon child did not exit.");
         return new CrudResults(
             new OperationStats(count / setSeconds, Summarize(set)),
             new OperationStats(1000 / getSeconds, Summarize(get)),

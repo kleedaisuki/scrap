@@ -108,6 +108,29 @@ public sealed class DaemonRequestDispatcherTests
     }
 
     /// <summary>
+    /// 验证无效信封仍使用安全请求 ID，而版本错误保持有效请求 ID。
+    /// / Verifies that an invalid envelope receives a safe request ID while a version error preserves a valid one.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsyncUsesFallbackRequestIdOnlyForInvalidEnvelope()
+    {
+        var operations = new FakeDaemonOperations();
+        using var coordinator = new RequestExecutionCoordinator(new DaemonRuntimeState());
+        var dispatcher = CreateDispatcher(operations, coordinator);
+        var request = new ProtocolRequest(
+            ProtocolConstants.CurrentVersion + 1,
+            string.Empty,
+            ProtocolMethods.ScopeList,
+            ProtocolJson.ToElement(new ScopeListParams()));
+
+        DaemonDispatchResult dispatch = await dispatcher.DispatchAsync(request, CancellationToken.None);
+
+        Assert.Equal("invalid", dispatch.Response.RequestId);
+        Assert.Equal(ProtocolErrorCodes.InvalidRequest, dispatch.Response.Error?.Code);
+        Assert.Empty(operations.Invocations);
+    }
+
+    /// <summary>
     /// 验证未知 method 返回稳定的 <c>method_not_found</c> 错误，而不是内部错误。
     /// / Verifies that an unknown method returns the stable <c>method_not_found</c> error rather than an internal error.
     /// </summary>
@@ -124,6 +147,27 @@ public sealed class DaemonRequestDispatcherTests
 
         AssertError(dispatch, ProtocolErrorCodes.MethodNotFound);
         Assert.Empty(operations.Invocations);
+    }
+
+    /// <summary>
+    /// 未知 method 仍返回 method_not_found，但日志仅记录固定占位符而非任意 wire 名称。
+    /// Unknown methods still return method_not_found while logs use a fixed placeholder instead of an arbitrary wire name.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsyncRedactsUnknownMethodInLogs()
+    {
+        var logger = new CollectingLogger<DaemonRequestDispatcher>();
+        using var coordinator = new RequestExecutionCoordinator(new DaemonRuntimeState());
+        var dispatcher = CreateDispatcher(new FakeDaemonOperations(), coordinator, logger);
+        const string unknownMethod = "secret-user-supplied-method";
+
+        DaemonDispatchResult dispatch = await dispatcher.DispatchAsync(
+            ProtocolRequest.Create(RequestId, unknownMethod, new EmptyParameters()),
+            CancellationToken.None);
+
+        AssertError(dispatch, ProtocolErrorCodes.MethodNotFound);
+        Assert.Contains(logger.Entries, entry => entry.Message.Contains("<unknown>", StringComparison.Ordinal));
+        Assert.All(logger.Entries, entry => Assert.DoesNotContain(unknownMethod, entry.Message, StringComparison.Ordinal));
     }
 
     /// <summary>

@@ -80,6 +80,31 @@ public sealed class DaemonActivityTrackerTests
     }
 
     /// <summary>
+    /// 验证连接接纳与空闲停止共享活动快照，停止后拒绝连接且不会刷新空闲时间。<br/>
+    /// Verifies admission and idle shutdown share an activity snapshot, and rejected connections do not reset idle time.
+    /// </summary>
+    [Fact]
+    public void IdleShutdownRejectsFurtherAdmissionWithoutChangingActivity()
+    {
+        var clock = new ManualTimeProvider();
+        var tracker = new DaemonActivityTracker(clock);
+        var state = new DaemonRuntimeState();
+        TimeSpan threshold = TimeSpan.FromSeconds(30);
+
+        Assert.True(tracker.TryBeginConnection(state, out IDisposable? lease));
+        clock.Advance(threshold);
+        Assert.False(tracker.TryBeginStoppingIfIdle(threshold, state));
+
+        lease!.Dispose();
+        clock.Advance(threshold);
+        Assert.True(tracker.TryBeginStoppingIfIdle(threshold, state));
+        Assert.False(tracker.TryBeginConnection(state, out IDisposable? rejected));
+        Assert.Null(rejected);
+        Assert.Equal(0L, tracker.ActiveConnections);
+        Assert.True(tracker.IsIdleFor(threshold));
+    }
+
+    /// <summary>
     /// 为测试提供可确定推进的单调时钟。 / Provides a deterministically advancing monotonic clock for tests.
     /// </summary>
     private sealed class ManualTimeProvider : TimeProvider

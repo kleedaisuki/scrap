@@ -53,6 +53,19 @@ public sealed class SearchTests
         Assert.Empty(all.Scopes);
     }
 
+    /// <summary>已创建请求的 scope 快照不能被输入列表或强制转换后的集合接口修改。 / A created request's scope snapshot cannot be changed through its input or a cast collection interface.</summary>
+    [Fact]
+    public void SearchRequestScopesAreImmutableSnapshot()
+    {
+        string?[] input = ["z", "a"];
+        var request = SearchRequest.TryCreate(input, "key").Value;
+
+        input[0] = "changed";
+        Assert.Equal(["a", "z"], request.Scopes.Select(scope => scope.Value));
+        Assert.Throws<NotSupportedException>(() =>
+            ((IList<ScopeName>)request.Scopes)[0] = ScopeName.Create("changed"));
+    }
+
     /// <summary>跨 scope 同分结果按 scope 后 key 的 ordinal 次序稳定排列。 / Cross-scope ties are stable by ordinal scope and then key.</summary>
     [Fact]
     public void CrossScopeTiesOrderByScopeThenKey()

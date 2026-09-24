@@ -1,25 +1,14 @@
 using System.Diagnostics;
-using System.Globalization;
-using System.Reflection;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Hosting;
-using Scrap.Client;
 using Scrap.Crypto;
 using Scrap.Daemon;
 using Scrap.Domain;
-using Scrap.Platform.Ipc;
 using Scrap.Platform.Paths;
 using Scrap.Platform.Processes;
-using Scrap.Platform.Secrets;
-using Scrap.Protocol;
 using Scrap.Storage.Sqlite;
 using DomainCase = Scrap.Domain.CaseSensitivity;
 using DomainMode = Scrap.Domain.SearchMode;
-using ProtocolCase = Scrap.Protocol.CaseSensitivity;
-using ProtocolMode = Scrap.Protocol.SearchMode;
 
 /// <summary>Focused storage experiments / 存储专项实验.</summary>
 internal static partial class Benchmarks
@@ -43,7 +32,7 @@ internal static partial class Benchmarks
             }
             result[name] = Summarize(samples);
         }
-        await File.WriteAllTextAsync(output, JsonSerializer.Serialize(result, JsonOptions));
+        await WriteJsonAsync(output, result);
     }
 
     /// <summary>Measures CRUD and scope-count behavior with the scope index kept or dropped. / 测量保留或删除 scope 索引时的 CRUD 与 scope 计数行为。</summary>
@@ -121,7 +110,7 @@ internal static partial class Benchmarks
             Delete = new OperationStats(count / deleteSeconds, Summarize(delete)),
             CountScopeMs = Summarize(countSamples),
         };
-        await File.WriteAllTextAsync(output, JsonSerializer.Serialize(result, JsonOptions));
+        await WriteJsonAsync(output, result);
     }
 
     /// <summary>Repeats the production metadata-and-fuzzy path for external sampling profilers. / 重复生产元数据与模糊搜索路径，供外部采样分析器使用。</summary>

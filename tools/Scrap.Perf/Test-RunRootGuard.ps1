@@ -1,5 +1,5 @@
-# Validates that fixture-creating modes reject non-empty roots without deleting prior data.
-# 验证创建夹具的模式会拒绝非空根目录，且不会删除既有数据。
+# Validates that fixture-creating modes reject occupied or external paths without touching prior data.
+# 验证创建夹具的模式拒绝非空或外部路径，且不会改动既有数据。
 [CmdletBinding()]
 param()
 
@@ -14,19 +14,53 @@ New-Item -ItemType Directory -Path $runRoot | Out-Null
 Set-Content -LiteralPath $sentinel -Value 'must survive' -NoNewline
 $before = (Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash
 
+function Assert-Rejected {
+    # Exercise the executable contract, not an internal helper. / 测试可执行程序契约，而非内部辅助函数。
+    param([string]$Mode, [string]$Root, [string]$Output)
+
+    & dotnet run --no-build -c Release --project tools/Scrap.Perf -- $Mode $Root $Output
+    if ($LASTEXITCODE -ne 2) {
+        throw "Expected exit code 2 for $Mode with root '$Root' and output '$Output', got $LASTEXITCODE."
+    }
+}
+
 Push-Location $repository
 try {
-    & dotnet run -c Release --project tools/Scrap.Perf -- baseline $runRoot $output
-    $toolExitCode = $LASTEXITCODE
+    & dotnet build -c Release tools/Scrap.Perf/Scrap.Perf.csproj
+    if ($LASTEXITCODE -ne 0) { throw 'Benchmark tool build failed.' }
+
+    foreach ($mode in @('baseline', 'startup', 'resources')) {
+        Assert-Rejected $mode $runRoot $output
+    }
+
+    $outsideRoot = Join-Path $repository 'perf-root-outside-guard'
+    Assert-Rejected 'baseline' $outsideRoot $output
+    if (Test-Path -LiteralPath $outsideRoot) { throw 'The rejected external root was created.' }
+
+    $outsideOutput = Join-Path $repository 'perf-output-outside-guard.json'
+    $emptyRoot = Join-Path $repository ".temp/perf-empty-guard-$([guid]::NewGuid().ToString('N'))"
+    foreach ($mode in @('baseline', 'startup', 'resources')) {
+        Assert-Rejected $mode $emptyRoot $outsideOutput
+    }
+    if (Test-Path -LiteralPath $outsideOutput) { throw 'The rejected external output was created.' }
+    if (Test-Path -LiteralPath $emptyRoot) { throw 'An invalid output path created the run root.' }
+
+    # Verify the shared JSON writer through a real focus run, including nested output creation. / 通过真实专项运行验证共享 JSON 写入器及嵌套目录创建。
+    $focusRoot = Join-Path $repository ".temp/perf-focus-output-$([guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Path $focusRoot | Out-Null
+    $focusOutput = Join-Path $focusRoot 'reports/index.json'
+    & dotnet run --no-build -c Release --project tools/Scrap.Perf -- index (Join-Path $focusRoot 'index.db') keep $focusOutput
+    if ($LASTEXITCODE -ne 0) { throw "Index focus mode failed with exit code $LASTEXITCODE." }
+    $focusResult = Get-Content -LiteralPath $focusOutput -Raw | ConvertFrom-Json
+    if ($focusResult.DropIndex -or $focusResult.Set.LatencyMs.Samples -ne 500 -or $focusResult.CountScopeMs.Samples -ne 2000) {
+        throw 'Index focus JSON omitted the selected variant or expected sample counts.'
+    }
 }
 finally {
     Pop-Location
 }
 
 $after = (Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash
-if ($toolExitCode -ne 2) {
-    throw "Expected exit code 2 for a non-empty run root, got $toolExitCode."
-}
 if ($before -ne $after) {
     throw 'The existing sentinel was modified.'
 }
@@ -34,4 +68,6 @@ if (Test-Path -LiteralPath $output) {
     throw 'The rejected run created its output file.'
 }
 
-Write-Host "Run-root guard passed; preserved $sentinel"
+Write-Host "Run-root guard passed for all fixture modes and external paths; preserved $sentinel"
+# 预期的子进程退出码 2 不应成为此脚本的退出码。 / Expected child exit code 2 must not become this script's exit code.
+exit 0

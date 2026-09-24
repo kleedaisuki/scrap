@@ -57,9 +57,7 @@ internal sealed class DaemonActivityTracker
     {
         lock (gate)
         {
-            Touch();
-            activeConnections++;
-            return new Lease(this, isConnection: true);
+            return BeginConnectionUnderLock();
         }
     }
 
@@ -79,7 +77,7 @@ internal sealed class DaemonActivityTracker
                 return false;
             }
 
-            lease = BeginConnection();
+            lease = BeginConnectionUnderLock();
             return true;
         }
     }
@@ -107,12 +105,7 @@ internal sealed class DaemonActivityTracker
     {
         lock (gate)
         {
-            if (activeConnections != 0 || activeRequests != 0)
-            {
-                return false;
-            }
-
-            return timeProvider.GetElapsedTime(lastActivityTimestamp, timeProvider.GetTimestamp()) >= duration;
+            return IsIdleForUnderLock(duration);
         }
     }
 
@@ -127,7 +120,7 @@ internal sealed class DaemonActivityTracker
     {
         lock (gate)
         {
-            return IsIdleFor(duration) && state.BeginStopping();
+            return IsIdleForUnderLock(duration) && state.BeginStopping();
         }
     }
 
@@ -170,6 +163,26 @@ internal sealed class DaemonActivityTracker
     }
 
     private void Touch() => lastActivityTimestamp = timeProvider.GetTimestamp();
+
+    /// <summary>
+    /// 在已持有活动锁时接纳连接，避免原子检查路径再次获取同一 monitor。<br/>
+    /// Admits a connection while the activity lock is held, avoiding a second monitor acquisition in the atomic check path.
+    /// </summary>
+    private Lease BeginConnectionUnderLock()
+    {
+        Touch();
+        activeConnections++;
+        return new Lease(this, isConnection: true);
+    }
+
+    /// <summary>
+    /// 在已持有活动锁时评估空闲窗口；停止决策必须使用同一快照。<br/>
+    /// Evaluates the idle window while the activity lock is held so shutdown uses the same activity snapshot.
+    /// </summary>
+    private bool IsIdleForUnderLock(TimeSpan duration) =>
+        activeConnections == 0
+        && activeRequests == 0
+        && timeProvider.GetElapsedTime(lastActivityTimestamp, timeProvider.GetTimestamp()) >= duration;
 
     private sealed class Lease : IDisposable
     {
