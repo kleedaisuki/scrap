@@ -62,7 +62,7 @@ public sealed class SearchRequest
         Limit = limit;
     }
 
-    /// <summary>获取按 ordinal 排序且去重的目标 scope；空集合表示全部。 / Gets ordinal-sorted, distinct target scopes; empty means all.</summary>
+    /// <summary>获取不可修改、按 ordinal 排序且去重的目标 scope；空集合表示全部。 / Gets immutable, ordinal-sorted, distinct target scopes; empty means all.</summary>
     public IReadOnlyList<ScopeName> Scopes { get; }
 
     /// <summary>获取原样 query 或 pattern。 / Gets the verbatim query or pattern.</summary>
@@ -142,8 +142,10 @@ public sealed class SearchRequest
                 "limit"));
         }
 
+        // Do not expose an array behind IReadOnlyList: callers could cast it back and mutate the filter.
+        // 不要用 IReadOnlyList 包装可外部强制转换的数组，否则调用方可以篡改筛选条件。
         return DomainResult.Success(new SearchRequest(
-            normalizedScopes.Values.ToArray(),
+            Array.AsReadOnly(normalizedScopes.Values.ToArray()),
             query!,
             mode,
             caseSensitivity,

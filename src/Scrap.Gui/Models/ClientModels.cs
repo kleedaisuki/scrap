@@ -107,8 +107,8 @@ public sealed record RecordDetails(
     long Revision)
 {
     /// <summary>非空的值快照。Non-empty immutable value snapshot.</summary>
-    public IReadOnlyList<string> Values { get; init; } = Values.Count > 0
-        ? Values.ToArray()
+    public IReadOnlyList<string> Values { get; } = Values.Count > 0
+        ? Array.AsReadOnly(Values.ToArray())
         : throw new ArgumentException("A record must contain at least one value.", nameof(Values));
 
     /// <summary>从旧版单 value 构造记录。Constructs a record from a legacy single value.</summary>
@@ -148,8 +148,8 @@ public sealed record SaveRecordRequest(
     long? ExpectedRevision)
 {
     /// <summary>要原子替换的非空值快照。Non-empty value snapshot to replace atomically.</summary>
-    public IReadOnlyList<string> Values { get; init; } = Values.Count > 0
-        ? Values.ToArray()
+    public IReadOnlyList<string> Values { get; } = Values.Count > 0
+        ? Array.AsReadOnly(Values.ToArray())
         : throw new ArgumentException("A record must contain at least one value.", nameof(Values));
 
     /// <summary>从旧版单 value 构造保存请求。Constructs a save request from a legacy single value.</summary>
