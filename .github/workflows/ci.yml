@@ -53,8 +53,14 @@ jobs:
         run: pnpm --dir website build
 
   developer-tools:
-    name: Developer tools
-    runs-on: ubuntu-latest
+    name: Developer tools / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # 路径边界在 Windows 和 POSIX 上语义不同，两者均需验证。
+        # Path boundaries differ between Windows and POSIX; exercise both.
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - name: Checkout
