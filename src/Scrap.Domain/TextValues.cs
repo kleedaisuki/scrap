@@ -181,10 +181,10 @@ public sealed class RecordValue : IEquatable<RecordValue>
 }
 
 /// <summary>
-/// 表示 record 的非空、有序秘密值列表；保留重复项与空字符串。<br/>
-/// Represents a non-empty ordered list of secret record values; duplicates and empty strings are preserved.
+/// 表示 record 的非空、有序秘密值列表；保留重复项与空字符串，并按顺序比较。<br/>
+/// Represents a non-empty ordered list of secret record values; duplicates and empty strings are preserved, and equality respects order.
 /// </summary>
-public sealed class RecordValues : IReadOnlyList<RecordValue>
+public sealed class RecordValues : IReadOnlyList<RecordValue>, IEquatable<RecordValues>
 {
     /// <summary>单个 record 允许的最大 value 数量。 / Maximum number of values in one record.</summary>
     public const int MaximumCount = 32;
@@ -258,6 +258,32 @@ public sealed class RecordValues : IReadOnlyList<RecordValue>
 
     /// <inheritdoc />
     System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => values.GetEnumerator();
+
+    /// <summary>
+    /// 按原始顺序比较每个值；重复项和空值也参与身份比较。<br/>
+    /// Compares every value in order; duplicates and empty values also contribute to equality.
+    /// </summary>
+    /// <param name="other">待比较列表。 / The list to compare.</param>
+    /// <returns>两个有序列表是否相等。 / Whether the ordered lists are equal.</returns>
+    public bool Equals(RecordValues? other) =>
+        other is not null &&
+        (ReferenceEquals(this, other) ||
+         (values.Length == other.values.Length && values.SequenceEqual(other.values)));
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => Equals(obj as RecordValues);
+
+    /// <inheritdoc />
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        foreach (var value in values)
+        {
+            hash.Add(value.Value, StringComparer.Ordinal);
+        }
+
+        return hash.ToHashCode();
+    }
 
     /// <summary>返回固定遮盖文本。 / Returns fixed redacted text.</summary>
     public override string ToString() => $"[REDACTED:{Count}]";

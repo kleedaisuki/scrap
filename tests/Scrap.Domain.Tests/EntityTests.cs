@@ -26,6 +26,51 @@ public sealed class EntityTests
         Assert.True(RecordValues.TryCreate(Enumerable.Repeat(string.Empty, RecordValues.MaximumCount + 1).ToArray()).IsFailure);
         Assert.True(RecordValues.TryCreate([new string('a', RecordValues.MaximumAggregateUtf8Bytes), "b"]).IsFailure);
     }
+
+    /// <summary>值列表按顺序而非对象引用比较，且不会混淆不同顺序或重复项。 / Value lists compare by order rather than reference without conflating reorderings or duplicates.</summary>
+    [Fact]
+    public void RecordValuesHaveOrderedValueEquality()
+    {
+        var first = RecordValues.TryCreate(["a", "", "a"]).Value;
+        var same = RecordValues.TryCreate(["a", "", "a"]).Value;
+        var reordered = RecordValues.TryCreate(["", "a", "a"]).Value;
+        var changed = RecordValues.TryCreate(["a", "", "b"]).Value;
+
+        Assert.NotSame(first, same);
+        Assert.True(first.Equals(same));
+        Assert.Equal(first, same);
+        Assert.Equal(first.GetHashCode(), same.GetHashCode());
+        Assert.NotEqual(first, reordered);
+        Assert.NotEqual(first, changed);
+        Assert.False(first.Equals(null));
+        Assert.Equal("[REDACTED:3]", first.ToString());
+    }
+
+    /// <summary>值对象快照不受调用方后续列表修改影响。 / The value-object snapshot is unaffected by later caller-list mutations.</summary>
+    [Fact]
+    public void RecordValuesCopyCallerList()
+    {
+        string[] input = ["before"];
+        var values = RecordValues.TryCreate(input).Value;
+
+        input[0] = "after";
+
+        Assert.Equal("before", values[0].Value);
+    }
+
+    /// <summary>单值创建委托给列表创建，但仍先报告 scope、key 错误。 / Scalar creation delegates to list creation while retaining scope/key error precedence.</summary>
+    [Fact]
+    public void ScalarCreateSharesValidationAndErrorPrecedenceWithList()
+    {
+        var now = DateTimeOffset.UnixEpoch;
+        var scalar = Record.TryCreate("scope", "key", "secret", Presentation.Masked, now).Value;
+        var list = Record.TryCreate("scope", "key", ["secret"], Presentation.Masked, now).Value;
+
+        Assert.Equal(list.Values, scalar.Values);
+        Assert.Equal("scope", Record.TryCreate("", "", (string?)null, Presentation.Masked, now).Error?.Field);
+        Assert.Equal("key", Record.TryCreate("scope", "", (string?)null, Presentation.Masked, now).Error?.Field);
+        Assert.Equal("values", Record.TryCreate("scope", "key", (string?)null, Presentation.Masked, now).Error?.Field);
+    }
     /// <summary>验证 scope 重命名不改变原实例或创建时间。 / Verifies that scope rename changes neither the original instance nor creation time.</summary>
     [Fact]
     public void ScopeRenameIsImmutable()

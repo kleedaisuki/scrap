@@ -134,22 +134,8 @@ public sealed class Record
         string? key,
         string? value,
         Presentation presentation,
-        DateTimeOffset createdAt)
-    {
-        var scopeResult = ScopeName.TryCreate(scope);
-        if (scopeResult.IsFailure)
-        {
-            return DomainResult.Failure<Record>(scopeResult.Error!);
-        }
-
-        var keyResult = RecordKey.TryCreate(key);
-        if (keyResult.IsFailure)
-        {
-            return DomainResult.Failure<Record>(keyResult.Error!);
-        }
-
-        return TryCreate(scope, key, value is null ? null : [value], presentation, createdAt);
-    }
+        DateTimeOffset createdAt) =>
+        TryCreate(scope, key, value is null ? null : [value], presentation, createdAt);
 
     /// <summary>从有序值列表创建 record。 / Creates a record from an ordered value list.</summary>
     public static DomainResult<Record> TryCreate(
