@@ -39,8 +39,11 @@ try {
 
     $outsideOutput = Join-Path $repository 'perf-output-outside-guard.json'
     $emptyRoot = Join-Path $repository ".temp/perf-empty-guard-$([guid]::NewGuid().ToString('N'))"
-    Assert-Rejected 'baseline' $emptyRoot $outsideOutput
+    foreach ($mode in @('baseline', 'startup', 'resources')) {
+        Assert-Rejected $mode $emptyRoot $outsideOutput
+    }
     if (Test-Path -LiteralPath $outsideOutput) { throw 'The rejected external output was created.' }
+    if (Test-Path -LiteralPath $emptyRoot) { throw 'An invalid output path created the run root.' }
 
     # Verify the shared JSON writer through a real focus run, including nested output creation. / 通过真实专项运行验证共享 JSON 写入器及嵌套目录创建。
     $focusRoot = Join-Path $repository ".temp/perf-focus-output-$([guid]::NewGuid().ToString('N'))"
