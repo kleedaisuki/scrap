@@ -7,6 +7,7 @@
 ## 为什么是 scrap
 
 - **跨 scope 找到记录**：精确、模糊或正则检索可以覆盖一个、多个或全部 scope；结果始终携带完整的 `scope / key` 身份。
+- **一条记录保存多个值**：同一 `(scope, key)` 下的值按顺序整体读写；旧单值 CLI 调用仍可使用。
 - **遮罩语义清楚**：Masked/Visible 只决定详情页默认怎样展示；编辑框的“显示值”只是临时状态。两者使用完全相同的加密存储。
 - **适合人，也适合管道**：GUI 提供检索、显示与复制；CLI 保持干净的 stdout、明确的 stderr 和稳定退出码。
 - **不依赖云账户**：value 加密后进入本机 SQLite，主密钥交由操作系统凭据设施保护。
@@ -79,6 +80,7 @@ pnpm --dir website run verify
 - 产品与交互决策：[`docs/ux-product-spec.md`](docs/ux-product-spec.md)
 - 平台样式、i18n、Pages 与分发研究：[`docs/research-platform-style.md`](docs/research-platform-style.md)
 - 架构演进：[`docs/architecture-evolution.md`](docs/architecture-evolution.md)
+- 依赖、文档与变更治理：[`docs/maintenance-governance.md`](docs/maintenance-governance.md)
 
 ## License
 
