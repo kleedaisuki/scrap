@@ -39,13 +39,8 @@ public sealed class Scope
     /// <param name="name">原样名称。 / Name as supplied.</param>
     /// <param name="createdAt">创建时间。 / Creation timestamp.</param>
     /// <returns>scope 或结构化错误。 / The scope or a structured error.</returns>
-    public static DomainResult<Scope> TryCreate(string? name, DateTimeOffset createdAt)
-    {
-        var parsed = ScopeName.TryCreate(name);
-        return parsed.IsSuccess
-            ? DomainResult.Success(new Scope(parsed.Value, createdAt, createdAt))
-            : DomainResult.Failure<Scope>(parsed.Error!);
-    }
+    public static DomainResult<Scope> TryCreate(string? name, DateTimeOffset createdAt) =>
+        TryRestore(name, createdAt, createdAt);
 
     /// <summary>
     /// 从持久化状态重建 scope，同时执行与新建相同的名称校验。<br/>
@@ -143,26 +138,8 @@ public sealed class Record
         string? key,
         IReadOnlyList<string>? values,
         Presentation presentation,
-        DateTimeOffset createdAt)
-    {
-        var scopeResult = ScopeName.TryCreate(scope);
-        if (scopeResult.IsFailure) return DomainResult.Failure<Record>(scopeResult.Error!);
-        var keyResult = RecordKey.TryCreate(key);
-        if (keyResult.IsFailure) return DomainResult.Failure<Record>(keyResult.Error!);
-        var valuesResult = RecordValues.TryCreate(values);
-        if (valuesResult.IsFailure) return DomainResult.Failure<Record>(valuesResult.Error!);
-
-        var presentationError = ValidatePresentation(presentation);
-        return presentationError is null
-            ? DomainResult.Success(new Record(
-                scopeResult.Value,
-                keyResult.Value,
-                valuesResult.Value,
-                presentation,
-                createdAt,
-                createdAt))
-            : DomainResult.Failure<Record>(presentationError);
-    }
+        DateTimeOffset createdAt) =>
+        TryRestore(scope, key, values, presentation, createdAt, createdAt);
 
     /// <summary>
     /// 从持久化状态重建 record，同时执行与新建相同的全部校验。<br/>
@@ -181,30 +158,31 @@ public sealed class Record
         string? value,
         Presentation presentation,
         DateTimeOffset createdAt,
-        DateTimeOffset updatedAt)
-    {
-        var created = TryCreate(scope, key, value, presentation, createdAt);
-        return created.IsSuccess
-            ? DomainResult.Success(new Record(
-                created.Value.Scope,
-                created.Value.Key,
-                created.Value.Values,
-                created.Value.Presentation,
-                createdAt,
-                updatedAt))
-            : DomainResult.Failure<Record>(created.Error!);
-    }
+        DateTimeOffset updatedAt) =>
+        TryRestore(scope, key, value is null ? null : [value], presentation, createdAt, updatedAt);
 
-    /// <summary>从持久化的有序列表重建 record。 / Restores a record from a persisted ordered list.</summary>
+    /// <summary>从持久化的有序列表重建 record；与新建共享校验顺序。 / Restores a record from a persisted ordered list using the creation validation order.</summary>
     public static DomainResult<Record> TryRestore(
         string? scope, string? key, IReadOnlyList<string>? values, Presentation presentation,
         DateTimeOffset createdAt, DateTimeOffset updatedAt)
     {
-        var created = TryCreate(scope, key, values, presentation, createdAt);
-        return created.IsSuccess
-            ? DomainResult.Success(new Record(created.Value.Scope, created.Value.Key, created.Value.Values,
-                created.Value.Presentation, createdAt, updatedAt))
-            : DomainResult.Failure<Record>(created.Error!);
+        var scopeResult = ScopeName.TryCreate(scope);
+        if (scopeResult.IsFailure) return DomainResult.Failure<Record>(scopeResult.Error!);
+        var keyResult = RecordKey.TryCreate(key);
+        if (keyResult.IsFailure) return DomainResult.Failure<Record>(keyResult.Error!);
+        var valuesResult = RecordValues.TryCreate(values);
+        if (valuesResult.IsFailure) return DomainResult.Failure<Record>(valuesResult.Error!);
+
+        var presentationError = ValidatePresentation(presentation);
+        return presentationError is null
+            ? DomainResult.Success(new Record(
+                scopeResult.Value,
+                keyResult.Value,
+                valuesResult.Value,
+                presentation,
+                createdAt,
+                updatedAt))
+            : DomainResult.Failure<Record>(presentationError);
     }
 
     /// <summary>整值替换并更新展示策略，不修改原实例。 / Replaces the whole value and presentation policy without modifying the original instance.</summary>

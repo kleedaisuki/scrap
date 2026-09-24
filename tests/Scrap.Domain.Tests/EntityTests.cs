@@ -139,6 +139,23 @@ public sealed class EntityTests
         Assert.Equal(updatedAt, record.UpdatedAt);
     }
 
+    /// <summary>重建与新建共享验证顺序，且多值重建不改动值、时间戳或旧标量错误字段。 / Restoration shares creation validation order and preserves multi-values, timestamps, and the legacy scalar error field.</summary>
+    [Fact]
+    public void RestoreSharesCreationValidationAndPreservesMultiValues()
+    {
+        var createdAt = DateTimeOffset.UnixEpoch;
+        var updatedAt = createdAt.AddHours(1);
+        var restored = Record.TryRestore(
+            "scope", "key", ["one", "", "one"], Presentation.Plain, createdAt, updatedAt).Value;
+
+        Assert.Equal(["one", "", "one"], restored.Values.Select(value => value.Value));
+        Assert.Equal(createdAt, restored.CreatedAt);
+        Assert.Equal(updatedAt, restored.UpdatedAt);
+        Assert.Equal("scope", Record.TryRestore("", "", (string?)null, Presentation.Masked, createdAt, updatedAt).Error?.Field);
+        Assert.Equal("key", Record.TryRestore("scope", "", (string?)null, Presentation.Masked, createdAt, updatedAt).Error?.Field);
+        Assert.Equal("values", Record.TryRestore("scope", "key", (string?)null, Presentation.Masked, createdAt, updatedAt).Error?.Field);
+    }
+
     /// <summary>验证统一身份变更可覆盖 key 与 scope rename，并保持值。 / Verifies unified reidentification covers key and scope rename while preserving the value.</summary>
     [Fact]
     public void ReidentifyChangesBothIdentityPartsWithoutChangingValue()
