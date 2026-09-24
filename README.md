@@ -81,6 +81,7 @@ pnpm --dir website run verify
 - 平台样式、i18n、Pages 与分发研究：[`docs/research-platform-style.md`](docs/research-platform-style.md)
 - 架构演进：[`docs/architecture-evolution.md`](docs/architecture-evolution.md)
 - 依赖、文档与变更治理：[`docs/maintenance-governance.md`](docs/maintenance-governance.md)
+- 仓库变更验收 SKILL：[`skills/scrap-change-gate/SKILL.md`](skills/scrap-change-gate/SKILL.md)
 
 ## License
 

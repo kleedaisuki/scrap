@@ -31,7 +31,7 @@ The .NET SDK is pinned to `10.0.400` without roll-forward. `Directory.Build.prop
 
 ## Repository skills
 
-No repository-local `SKILL.md` is currently tracked. This is deliberate: generic contributor and dependency policy belongs here rather than in an agent-only instruction. Add a local skill only for a repeatable, tool-specific workflow with a clear trigger and maintained examples; avoid duplicating this document or the CI commands in one.
+The focused [`scrap-change-gate` skill](../skills/scrap-change-gate/SKILL.md) captures the repeatable Scrap-specific verification workflow, including standalone tools omitted from the product solution and the GitHub Actions cross-platform gate. This document remains the source for policy and dependency decisions; the skill links here rather than duplicating the rationale. Add another skill only for a distinct workflow with a clear trigger and evidence that ordinary documentation is insufficient.
 
 ## Milestone gates
 
