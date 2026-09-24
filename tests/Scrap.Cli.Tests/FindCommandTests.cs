@@ -81,6 +81,43 @@ public sealed class FindCommandTests
                 new TestEnvironment()));
     }
 
+    /// <summary>统一解析器保留有值选项消费规则、重复 flag 错误以及 -- 终止符规则。 / The shared parser preserves valued-option consumption, duplicate-flag errors, and -- termination semantics.</summary>
+    [Fact]
+    public async Task FindParserPreservesOptionBoundariesAndErrorsAsync()
+    {
+        var client = new CapturingClient();
+        Assert.Equal(ExitCodes.Success, await CliApplication.RunAsync(
+            ["find", "needle", "--exact", "--scope", "--"], client, new TestEnvironment()));
+        Assert.Equal(["--"], client.Search!.Scopes);
+
+        var missing = new TestEnvironment();
+        Assert.Equal(ExitCodes.Usage, await CliApplication.RunAsync(
+            ["find", "needle", "--exact", "--scope"], client, missing));
+        Assert.Contains("An option value is missing.", missing.ErrorWriter.ToString(), StringComparison.Ordinal);
+
+        var duplicate = new TestEnvironment();
+        Assert.Equal(ExitCodes.Usage, await CliApplication.RunAsync(
+            ["find", "needle", "--exact", "--exact"], client, duplicate));
+        Assert.Contains("An option was specified more than once.", duplicate.ErrorWriter.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>纯 flag 命令仍把 -- 后的选项形参数当作位置参数。 / Flag-only commands still treat option-shaped arguments after -- as operands.</summary>
+    [Fact]
+    public async Task GetParserPreservesEndOfOptionsAsync()
+    {
+        var client = new CapturingClient { GetValue = new RecordValue("secret", RecordPresentation.Masked) };
+        var output = new TestEnvironment();
+
+        Assert.Equal(ExitCodes.Success, await CliApplication.RunAsync(
+            ["get", "--", "--json", "key"], client, output));
+        Assert.Equal("secret", output.Output.ToString());
+
+        var duplicate = new TestEnvironment();
+        Assert.Equal(ExitCodes.Usage, await CliApplication.RunAsync(
+            ["get", "scope", "key", "--json", "--json"], client, duplicate));
+        Assert.Contains("An option was specified more than once.", duplicate.ErrorWriter.ToString(), StringComparison.Ordinal);
+    }
+
     private sealed class CapturingClient : IScrapClient
     {
         public RecordSearch? Search { get; private set; }

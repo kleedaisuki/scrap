@@ -30,40 +30,8 @@ internal sealed class CommandLine
     /// 解析仅含 flag 的命令行，拒绝重复和可能意外承载 secret 的未知选项。/
     /// Parses a flag-only command line, rejecting duplicates and unknown options that might accidentally carry secrets.
     /// </summary>
-    public static CommandLine Parse(string[] args, params string[] allowedOptions)
-    {
-        var allowed = new HashSet<string>(allowedOptions, StringComparer.Ordinal);
-        var found = new HashSet<string>(StringComparer.Ordinal);
-        var operands = new List<string>();
-        var optionsEnded = false;
-
-        foreach (var argument in args)
-        {
-            if (!optionsEnded && argument == "--")
-            {
-                optionsEnded = true;
-                continue;
-            }
-
-            if (optionsEnded || !argument.StartsWith('-') || argument == "-")
-            {
-                operands.Add(argument);
-                continue;
-            }
-
-            if (!allowed.Contains(argument))
-            {
-                throw new CliUsageException("Unknown option.");
-            }
-
-            if (!found.Add(argument))
-            {
-                throw new CliUsageException("An option was specified more than once.");
-            }
-        }
-
-        return new CommandLine(operands, found);
-    }
+    public static CommandLine Parse(string[] args, params string[] allowedOptions) =>
+        ParseCore(args, allowedOptions, []);
 
     /// <summary>
     /// 解析 flag 与可重复的有值选项；有值选项消费紧随其后的一个参数。 /
@@ -72,7 +40,18 @@ internal sealed class CommandLine
     public static CommandLine ParseWithValues(
         string[] args,
         IReadOnlyCollection<string> allowedFlags,
-        params string[] valuedOptions)
+        params string[] valuedOptions) =>
+        ParseCore(args, allowedFlags, valuedOptions);
+
+    /// <summary>
+    /// 统一解析 flag 与有值选项；<c>--</c> 只在普通参数位置终止选项，有值选项始终消费下一参数。
+    /// / Parses flags and valued options together; <c>--</c> terminates options only in an ordinary argument position,
+    /// while a valued option always consumes the next argument.
+    /// </summary>
+    private static CommandLine ParseCore(
+        string[] args,
+        IReadOnlyCollection<string> allowedFlags,
+        IReadOnlyCollection<string> valuedOptions)
     {
         var flags = new HashSet<string>(allowedFlags, StringComparer.Ordinal);
         var valued = new HashSet<string>(valuedOptions, StringComparer.Ordinal);
