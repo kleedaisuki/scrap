@@ -1387,6 +1387,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// 刷新受影响空间的计数，但不改变独立的记录管理目标。
+    /// Refreshes the affected scope count without changing the independent record-management destination.
+    /// </summary>
     private async Task<bool> RefreshScopeCountAsync(string scopeName)
     {
         bool succeeded = false;
@@ -1407,9 +1411,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
             int index = Scopes.IndexOf(existing);
             Scopes[index] = refreshed;
-            _selectedScope = refreshed;
-            OnPropertyChanged(nameof(SelectedScope));
-            OnPropertyChanged(nameof(ScopeStatus));
+            if (string.Equals(SelectedScope?.Name, scopeName, StringComparison.Ordinal))
+            {
+                SelectedScope = refreshed;
+            }
+
             succeeded = true;
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)

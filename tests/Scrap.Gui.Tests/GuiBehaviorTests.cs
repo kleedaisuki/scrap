@@ -349,6 +349,41 @@ public sealed class MainWindowViewModelTests
     }
 
     /// <summary>
+    /// 编辑跨空间搜索结果后，计数刷新不得把记录管理目标切换到该记录的空间。
+    /// Refreshing counts after editing a cross-scope search result must not switch the record-management destination.
+    /// </summary>
+    [Fact]
+    public async Task CrossScopeEditPreservesManagementScope()
+    {
+        using var directory = TestDirectory.Create();
+        var candidate = new RecordCandidate("beta", "token", RecordPresentation.Plain);
+        var client = new FakeScrapClient
+        {
+            Scopes = [new ScopeSummary("alpha", 0), new ScopeSummary("beta", 1)],
+            SearchResults = [candidate],
+            Record = new RecordDetails("beta", "token", "value", RecordPresentation.Plain, DateTimeOffset.UnixEpoch, 1),
+        };
+        await using var viewModel = CreateViewModel(
+            client,
+            new UserPreferenceStore(Path.Combine(directory.Path, "preferences.json")));
+
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.Candidates.Count == 1);
+        Assert.Equal("alpha", viewModel.SelectedScope?.Name);
+
+        viewModel.SelectedCandidate = candidate;
+        await WaitUntilAsync(() => viewModel.SelectedRecord is not null);
+        viewModel.OpenEditRecordCommand.Execute(null);
+        viewModel.EditorValue = "updated";
+        viewModel.SaveRecordCommand.Execute(null);
+        await WaitUntilAsync(() => client.SaveRequests.Count == 1 && !viewModel.IsBusy);
+
+        Assert.Equal("beta", Assert.Single(client.SaveRequests).Scope);
+        Assert.Equal("alpha", viewModel.SelectedScope?.Name);
+        Assert.Same(viewModel.Scopes[0], viewModel.SelectedScope);
+    }
+
+    /// <summary>
     /// 精确与正则模式必须在 GUI 边界拒绝 client 意外返回的无关候选。
     /// Exact and regex modes must reject unrelated candidates accidentally returned by the client boundary.
     /// </summary>
