@@ -1,6 +1,6 @@
 # Security and validation simplification audit
 
-Date: 2026-09-24. Scope: local code inspection of `Scrap.Protocol`, `Scrap.Daemon`, `Scrap.Storage.Sqlite`, and `Scrap.Platform` on the working tree. This is an architectural review, not a penetration test; no production code or tests were changed.
+Date: 2026-09-24. Scope: local code inspection of `Scrap.Protocol`, `Scrap.Daemon`, `Scrap.Storage.Sqlite`, and `Scrap.Platform`. This is an architectural review, not a penetration test. The original audit made no code changes; its two actionable findings were subsequently implemented in commit `75ed459`.
 
 ## Decision frame
 
@@ -20,6 +20,10 @@ The accepted product threat model (`docs/scrap-design.md`, §2.4) trusts the cur
 3. The Unix socket `File.SetUnixFileMode(..., 0600)` at `IpcEndpointDescriptor.cs:183` is **not** redundant with `PipeOptions.CurrentUserOnly` on the pinned .NET 10 target (`Directory.Build.props`, `global.json`). Microsoft documents that the Unix socket-file `0600` behavior is only introduced in .NET 11 Preview 4; before that, `CurrentUserOnly` rejects cross-user connections at connect time but does not necessarily tighten the socket inode mode. The private parent directory also protects path traversal. Keep both until the minimum runtime changes and compatibility is tested. [Microsoft .NET breaking-change note](https://learn.microsoft.com/en-us/dotnet/core/compatibility/core-libraries/11/namedpipeserverstream-unix-permissions).
 4. The link/reparse-point checks in `PlatformPathPermissions.cs:82-93` should not be removed solely because same-user malicious code is out of scope. They also prevent accidental redirection of profile files and preserve an explicit path contract. Conversely, they are not a comprehensive race-free defense against same-user attackers: `RejectLinkIfPresent` checks a path before opening it. Avoid describing them as such. Reconsider only with an explicit policy for linked profile roots and a migration/compatibility test.
 5. `EnsureStoreFilesPrivate` at `SqliteDaemonOperations.cs:424-436` runs only at initialization and cannot alone guarantee mode on future SQLite WAL/SHM files. SQLite can create those sidecars as needed; the private data directory is the durable boundary. This does not justify removing the existing tightening of pre-existing files, especially for older or user-moved profiles. [SQLite WAL documentation](https://www.sqlite.org/wal.html). If a future change claims guaranteed per-file modes, test actual SQLite sidecar lifecycle rather than inferring it from this function.
+
+## Implementation status
+
+Commit `75ed459` removed the uncalled dispatcher helper and limited request-ID fallback to the malformed-envelope catch path. `DaemonRequestDispatcherTests.DispatchAsyncUsesFallbackRequestIdOnlyForInvalidEnvelope` covers the invalid-envelope response, while `DispatchAsyncRejectsUnsupportedProtocolVersion` covers version rejection and the shared `AssertError` checks the echoed valid request ID. The commit reports 74/74 Release daemon tests passing. This is a maintainability cleanup, not a security-strengthening claim; none of the five retained checks above has a documented redundant owner or sufficiently weak threat model to justify removal under the current compatibility contract.
 
 ## Verification checklist for a production cleanup
 
