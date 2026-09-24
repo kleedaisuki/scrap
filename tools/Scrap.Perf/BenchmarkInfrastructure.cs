@@ -1,25 +1,10 @@
 using System.Diagnostics;
-using System.Globalization;
 using System.Reflection;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
-using Microsoft.Extensions.Hosting;
 using Scrap.Client;
 using Scrap.Crypto;
-using Scrap.Daemon;
-using Scrap.Domain;
-using Scrap.Platform.Ipc;
-using Scrap.Platform.Paths;
 using Scrap.Platform.Processes;
 using Scrap.Platform.Secrets;
-using Scrap.Protocol;
-using Scrap.Storage.Sqlite;
-using DomainCase = Scrap.Domain.CaseSensitivity;
-using DomainMode = Scrap.Domain.SearchMode;
-using ProtocolCase = Scrap.Protocol.CaseSensitivity;
-using ProtocolMode = Scrap.Protocol.SearchMode;
 
 /// <summary>Provides shared benchmark infrastructure and isolation guards. / 提供共享基准基础设施与隔离保护。</summary>
 internal static partial class Benchmarks
@@ -121,6 +106,13 @@ internal static partial class Benchmarks
         info.ArgumentList.Add(root);
         info.ArgumentList.Add(provider);
         return Process.Start(info) ?? throw new InvalidOperationException("Could not start daemon child.");
+    }
+
+    /// <summary>Requests graceful shutdown and waits for the harness-owned daemon; callers retain mode-specific exit-code checks. / 请求优雅关闭并等待工具所属守护进程；各模式自行保留退出码检查。</summary>
+    internal static async Task StopAsync(Process process, ScrapClient client, string timeoutMessage)
+    {
+        await client.ShutdownAsync();
+        if (!process.WaitForExit(10_000)) throw new TimeoutException(timeoutMessage);
     }
 
     /// <summary>Creates a fixture profile root and applies the same Windows ACL precondition as production paths. / 创建夹具配置根目录，并应用与生产路径相同的 Windows ACL 前置条件。</summary>

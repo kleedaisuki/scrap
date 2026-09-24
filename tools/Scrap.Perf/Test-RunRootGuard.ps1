@@ -41,6 +41,17 @@ try {
     $emptyRoot = Join-Path $repository ".temp/perf-empty-guard-$([guid]::NewGuid().ToString('N'))"
     Assert-Rejected 'baseline' $emptyRoot $outsideOutput
     if (Test-Path -LiteralPath $outsideOutput) { throw 'The rejected external output was created.' }
+
+    # Verify the shared JSON writer through a real focus run, including nested output creation. / 通过真实专项运行验证共享 JSON 写入器及嵌套目录创建。
+    $focusRoot = Join-Path $repository ".temp/perf-focus-output-$([guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Path $focusRoot | Out-Null
+    $focusOutput = Join-Path $focusRoot 'reports/index.json'
+    & dotnet run --no-build -c Release --project tools/Scrap.Perf -- index (Join-Path $focusRoot 'index.db') keep $focusOutput
+    if ($LASTEXITCODE -ne 0) { throw "Index focus mode failed with exit code $LASTEXITCODE." }
+    $focusResult = Get-Content -LiteralPath $focusOutput -Raw | ConvertFrom-Json
+    if ($focusResult.DropIndex -or $focusResult.Set.LatencyMs.Samples -ne 500 -or $focusResult.CountScopeMs.Samples -ne 2000) {
+        throw 'Index focus JSON omitted the selected variant or expected sample counts.'
+    }
 }
 finally {
     Pop-Location
