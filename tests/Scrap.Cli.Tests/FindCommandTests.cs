@@ -101,6 +101,22 @@ public sealed class FindCommandTests
         Assert.Contains("An option was specified more than once.", duplicate.ErrorWriter.ToString(), StringComparison.Ordinal);
     }
 
+    /// <summary>全局无色开关不得吞掉 --scope 的选项形参数，且其后仍可独立使用。 / The global no-color flag must not consume an option-shaped scope value and can still appear separately afterward.</summary>
+    [Fact]
+    public async Task FindKeepsOptionShapedScopeValueSeparateFromGlobalFlagAsync()
+    {
+        var client = new CapturingClient();
+        var environment = new TestEnvironment();
+
+        Assert.Equal(ExitCodes.Success, await CliApplication.RunAsync(
+            ["find", "needle", "--exact", "--scope", "--no-color", "--no-color"], client, environment));
+        Assert.Equal(["--no-color"], client.Search!.Scopes);
+
+        Assert.Equal(ExitCodes.Success, await CliApplication.RunAsync(
+            ["--no-color", "find", "needle", "--exact", "--scope", "--no-color"], client, new TestEnvironment()));
+        Assert.Equal(["--no-color"], client.Search!.Scopes);
+    }
+
     /// <summary>纯 flag 命令仍把 -- 后的选项形参数当作位置参数。 / Flag-only commands still treat option-shaped arguments after -- as operands.</summary>
     [Fact]
     public async Task GetParserPreservesEndOfOptionsAsync()

@@ -485,13 +485,27 @@ public static class CliApplication
         _ => ExitCodes.Protocol,
     };
 
+    /// <summary>
+    /// 仅从真正的 option 位置提取全局开关；find 的 --scope 后一项始终是数据，即使长得像开关。
+    /// / Extracts the global flag only from option positions; the item after find --scope is always data,
+    /// even when it resembles a flag.
+    /// </summary>
     private static string[] RemoveGlobalNoColor(string[] args)
     {
         var normalized = new List<string>(args.Length);
         var optionsEnded = false;
         var found = false;
-        foreach (var argument in args)
+        for (var index = 0; index < args.Length; index++)
         {
+            string argument = args[index];
+            if (!optionsEnded && normalized.Count > 0 && normalized[0] == "find" &&
+                argument == "--scope" && index + 1 < args.Length)
+            {
+                normalized.Add(argument);
+                normalized.Add(args[++index]);
+                continue;
+            }
+
             optionsEnded |= argument == "--";
             if (!optionsEnded && argument == NoColor)
             {
