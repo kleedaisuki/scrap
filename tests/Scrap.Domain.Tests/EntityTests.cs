@@ -27,6 +27,22 @@ public sealed class EntityTests
         Assert.True(RecordValues.TryCreate([new string('a', RecordValues.MaximumAggregateUtf8Bytes), "b"]).IsFailure);
     }
 
+    /// <summary>多字节值按严格 UTF-8 字节数累计，且单项无效 Unicode 的错误仍优先。 / Multibyte values use strict UTF-8 aggregate size, while an item's invalid Unicode error still takes precedence.</summary>
+    [Fact]
+    public void RecordValuesUseValidatedUtf8SizesForAggregateBoundary()
+    {
+        var nearlyFull = new string('界', RecordValues.MaximumAggregateUtf8Bytes / 3);
+        var atLimit = RecordValues.TryCreate([nearlyFull, "a"]);
+        var overLimit = RecordValues.TryCreate([nearlyFull, "ab"]);
+        var invalidItem = RecordValues.TryCreate([nearlyFull, "\ud800"]);
+
+        Assert.True(atLimit.IsSuccess);
+        Assert.Equal(DomainErrorCode.TextTooLong, overLimit.Error?.Code);
+        Assert.Equal("values", overLimit.Error?.Field);
+        Assert.Equal(DomainErrorCode.InvalidUnicode, invalidItem.Error?.Code);
+        Assert.Equal("values[1]", invalidItem.Error?.Field);
+    }
+
     /// <summary>值列表按顺序而非对象引用比较，且不会混淆不同顺序或重复项。 / Value lists compare by order rather than reference without conflating reorderings or duplicates.</summary>
     [Fact]
     public void RecordValuesHaveOrderedValueEquality()
