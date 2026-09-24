@@ -57,6 +57,25 @@ public sealed class DaemonEndToEndTests
         Assert.Equal(created.Record.Revision + 1, replaced.Revision);
     }
 
+    /// <summary>异步写入前复制调用方列表，读取结果不可通过数组转换或集合接口改写。 / Writes snapshot the caller's list before asynchronous work, and reads cannot be changed through an array cast or collection interface.</summary>
+    [Fact]
+    public async Task TypedClientSnapshotsValuesAcrossAsyncBoundaryAsync()
+    {
+        await using DaemonTestContext context = await DaemonTestContext.StartAsync();
+        _ = await context.Client.CreateScopeAsync("snapshot");
+        string[] source = ["original", "tail"];
+
+        Task<RecordSetResult> write = context.Client.SetRecordAsync("snapshot", "key", source);
+        source[0] = "mutated";
+        await write;
+
+        RecordDto record = (await context.Client.GetRecordAsync("snapshot", "key")).Record;
+        Assert.Equal(["original", "tail"], record.Values);
+        Assert.False(record.Values is string[]);
+        Assert.Throws<NotSupportedException>(() => ((IList<string>)record.Values)[0] = "mutated");
+        Assert.Equal("original", record.Values[0]);
+    }
+
     /// <summary>
     /// 主密钥 provider 失效只会禁用业务操作，不会杀死 daemon 的控制面。
     /// / A failed master-key provider disables business operations without killing the daemon control plane.
