@@ -13,6 +13,7 @@ public sealed class SqliteStoreTests
     private static readonly string[] OrderedScopes = [" alpha ", "Alpha", "alpha"];
     private static readonly string[] RenamedKeys = ["a", "b"];
     private static readonly string[] FirstKeysetPage = ["A", "a"];
+    private static readonly string[] SecondKeysetPage = ["a", "b"];
     private static readonly string[] OrdinalEdgeCaseOrder = ["\U00010000", "\uE000", "\uFFFF"];
     private static readonly byte[] IdentityNonce = [1];
 
@@ -183,6 +184,25 @@ public sealed class SqliteStoreTests
         var secondPage = database.Store.ListRecordMetadata("dev", afterKey: firstPage[^1].Identity.Key, limit: 2);
         Assert.Equal(FirstKeysetPage, firstPage.Select(record => record.Identity.Key));
         Assert.Equal("b", Assert.Single(secondPage).Identity.Key);
+    }
+
+    [Fact]
+    public void MetadataOffsetAndKeysetPagesUseTheSameProjectionAndOrder()
+    {
+        using var database = TestDatabase.Create();
+        database.Store.CreateScope("dev");
+        foreach (var key in new[] { "b", "a", "A" })
+        {
+            database.Store.SetRecord("dev", key, 1, _ => Protected(key));
+        }
+
+        var offsetPage = database.Store.ListRecordMetadata("dev", offset: 1, limit: 2);
+        var cursorPage = database.Store.ListRecordMetadata("dev", afterKey: "A", limit: 2);
+
+        Assert.Equal(offsetPage, cursorPage);
+        Assert.Equal(SecondKeysetPage, offsetPage.Select(record => record.Identity.Key));
+        Assert.Empty(database.Store.ListRecordMetadata("dev", offset: 3, limit: 2));
+        Assert.Empty(database.Store.ListRecordMetadata("dev", afterKey: "b", limit: 2));
     }
 
     [Fact]

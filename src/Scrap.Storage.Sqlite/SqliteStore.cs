@@ -437,32 +437,7 @@ public sealed class SqliteStore
         ArgumentOutOfRangeException.ThrowIfNegative(offset);
         ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(limit, 10_000);
-        using var connection = OpenConnection();
-        using var transaction = connection.BeginTransaction(deferred: true);
-        var scope = FindScope(connection, transaction, scopeName)
-            ?? throw new StorageNotFoundException(StorageEntityKind.Scope, scopeName);
-        using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            SELECT id, key, presentation, revision, created_at, updated_at
-            FROM records
-            WHERE scope_id = $scopeId
-            ORDER BY key COLLATE SCRAP_ORDINAL
-            LIMIT $limit OFFSET $offset;
-            """;
-        command.Parameters.AddWithValue("$scopeId", scope.Id);
-        command.Parameters.AddWithValue("$limit", limit);
-        command.Parameters.AddWithValue("$offset", offset);
-        using var reader = command.ExecuteReader();
-        var records = new List<StoredRecordMetadata>();
-        while (reader.Read())
-        {
-            records.Add(ReadRecordMetadata(reader, scope.Id, scopeName));
-        }
-
-        reader.Close();
-        transaction.Commit();
-        return records;
+        return ReadRecordMetadataPage(scopeName, afterKey: null, offset, limit);
     }
 
     /// <summary>
@@ -482,23 +457,40 @@ public sealed class SqliteStore
 
         ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(limit, 1001);
+        return ReadRecordMetadataPage(scopeName, afterKey, offset: 0, limit);
+    }
+
+    /// <summary>
+    /// 在一个只读事务中执行两种分页方式共享的无密文投影；仅游标查询加入游标谓词，保留 offset 查询的索引路径。<br/>
+    /// Reads the shared ciphertext-free projection in one read transaction; only keyset queries add a cursor predicate, preserving the offset query's index path.
+    /// </summary>
+    private List<StoredRecordMetadata> ReadRecordMetadataPage(string scopeName, string? afterKey, int offset, int limit)
+    {
         using var connection = OpenConnection();
         using var transaction = connection.BeginTransaction(deferred: true);
         var scope = FindScope(connection, transaction, scopeName)
             ?? throw new StorageNotFoundException(StorageEntityKind.Scope, scopeName);
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = """
+        var cursorPredicate = afterKey is null
+            ? string.Empty
+            : "AND key COLLATE SCRAP_ORDINAL > $afterKey COLLATE SCRAP_ORDINAL";
+        command.CommandText = $"""
             SELECT id, key, presentation, revision, created_at, updated_at
             FROM records
             WHERE scope_id = $scopeId
-              AND ($afterKey IS NULL OR key COLLATE SCRAP_ORDINAL > $afterKey COLLATE SCRAP_ORDINAL)
+              {cursorPredicate}
             ORDER BY key COLLATE SCRAP_ORDINAL
-            LIMIT $limit;
+            LIMIT $limit OFFSET $offset;
             """;
         command.Parameters.AddWithValue("$scopeId", scope.Id);
-        command.Parameters.AddWithValue("$afterKey", (object?)afterKey ?? DBNull.Value);
+        if (afterKey is not null)
+        {
+            command.Parameters.AddWithValue("$afterKey", afterKey);
+        }
+
         command.Parameters.AddWithValue("$limit", limit);
+        command.Parameters.AddWithValue("$offset", offset);
         using var reader = command.ExecuteReader();
         var records = new List<StoredRecordMetadata>();
         while (reader.Read())
