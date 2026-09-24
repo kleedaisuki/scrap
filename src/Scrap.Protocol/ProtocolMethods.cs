@@ -1,8 +1,8 @@
 namespace Scrap.Protocol;
 
 /// <summary>
-/// 定义 v1 RPC 方法名。调用方必须使用这些常量，避免协议字符串漂移。
-/// / Defines v1 RPC method names. Callers should use these constants to prevent wire-name drift.
+/// 定义版本化协议使用的 RPC 方法名。调用方必须使用这些常量，避免协议字符串漂移。
+/// / Defines RPC method names for the versioned protocol. Callers should use these constants to prevent wire-name drift.
 /// </summary>
 public static class ProtocolMethods
 {

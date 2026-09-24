@@ -14,8 +14,8 @@ public sealed record ProtocolError(
     [property: JsonPropertyName("message")] string Message);
 
 /// <summary>
-/// 表示一个 v1 RPC 请求 envelope。<paramref name="Params"/> 始终是 JSON 对象，而不是 <see langword="null"/>。
-/// / Represents a v1 RPC request envelope. <paramref name="Params"/> is always a JSON object, never <see langword="null"/>.
+/// 表示版本化 RPC 请求 envelope；v2 为当前版本，daemon 仍接受 v1。<paramref name="Params"/> 始终是 JSON 对象，而不是 <see langword="null"/>。
+/// / Represents a versioned RPC request envelope; v2 is current and the daemon still accepts v1. <paramref name="Params"/> is always a JSON object, never <see langword="null"/>.
 /// </summary>
 /// <param name="ProtocolVersion">主协议版本。 / Major protocol version.</param>
 /// <param name="RequestId">由调用方生成的不透明请求标识。 / Caller-generated opaque request identifier.</param>
@@ -80,8 +80,8 @@ public sealed record ProtocolRequest(
 }
 
 /// <summary>
-/// 表示一个 v1 RPC 响应 envelope；成功时仅含 result，失败时仅含 error。
-/// / Represents a v1 RPC response envelope; success has only a result and failure has only an error.
+/// 表示版本化 RPC 响应 envelope；成功时仅含 result，失败时仅含 error。
+/// / Represents a versioned RPC response envelope; success has only a result and failure has only an error.
 /// </summary>
 /// <param name="ProtocolVersion">主协议版本。 / Major protocol version.</param>
 /// <param name="RequestId">逐字回显的请求标识。 / Verbatim echoed request identifier.</param>

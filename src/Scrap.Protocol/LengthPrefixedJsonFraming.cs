@@ -96,7 +96,7 @@ public static class LengthPrefixedJsonFraming
         Memory<byte> header,
         CancellationToken cancellationToken)
     {
-        int read = await ReadAtLeastOneAsync(stream, header, cancellationToken).ConfigureAwait(false);
+        int read = await stream.ReadAsync(header, cancellationToken).ConfigureAwait(false);
         if (read == 0)
         {
             throw new EndOfStreamException("The transport ended between protocol frames.");
@@ -119,12 +119,6 @@ public static class LengthPrefixedJsonFraming
         await FillRemainderAsync(stream, payload, 0, "Frame payload is incomplete.", cancellationToken)
             .ConfigureAwait(false);
     }
-
-    private static async ValueTask<int> ReadAtLeastOneAsync(
-        Stream stream,
-        Memory<byte> buffer,
-        CancellationToken cancellationToken) =>
-        await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
 
     private static async ValueTask FillRemainderAsync(
         Stream stream,

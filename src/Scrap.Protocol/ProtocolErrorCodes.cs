@@ -1,8 +1,8 @@
 namespace Scrap.Protocol;
 
 /// <summary>
-/// 定义 v1 结构化错误码。错误码适合机器判断；消息只用于诊断。
-/// / Defines v1 structured error codes. Codes are for machines; messages are diagnostic only.
+/// 定义版本化协议使用的结构化错误码。错误码适合机器判断；消息只用于诊断。
+/// / Defines structured error codes for the versioned protocol. Codes are for machines; messages are diagnostic only.
 /// </summary>
 public static class ProtocolErrorCodes
 {
