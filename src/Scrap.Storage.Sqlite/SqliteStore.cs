@@ -137,7 +137,7 @@ public sealed class SqliteStore
         return FindScope(connection, transaction: null, name);
     }
 
-    /// <summary>以 ordinal/BINARY 顺序列出 scopes。 / Lists scopes in ordinal/BINARY order.</summary>
+    /// <summary>以 .NET ordinal 顺序列出 scopes；查询使用注册的 SCRAP_ORDINAL collation。 / Lists scopes in .NET ordinal order using the registered SCRAP_ORDINAL collation.</summary>
     public IReadOnlyList<StoredScope> ListScopes()
     {
         using var connection = OpenConnection();

@@ -16,7 +16,8 @@ public sealed class DaemonOptions
     public TimeSpan IdlePollInterval { get; set; } = TimeSpan.FromSeconds(1);
 
     /// <summary>
-    /// 获取或设置停止期间等待在途连接完成的最长时间。 / Gets or sets the maximum time to drain in-flight connections during shutdown.
+    /// 获取或设置 Generic Host 的停止期限；已接纳的 mutation 仍须完成，不能被该期限中断。<br/>
+    /// Gets or sets the Generic Host shutdown timeout; admitted mutations must still finish and are not interrupted by this bound.
     /// </summary>
     public TimeSpan ShutdownTimeout { get; set; } = TimeSpan.FromSeconds(15);
 
