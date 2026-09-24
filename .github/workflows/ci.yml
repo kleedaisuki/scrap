@@ -98,6 +98,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # 解决方案只引用源码；IDE 误加的构建产物会破坏干净检出。
+      # Keep build outputs out of the solution; IDE-added artifacts break clean checkouts.
+      - name: Reject generated solution entries
+        shell: pwsh
+        run: |
+          if (Select-String -LiteralPath Scrap.slnx -Pattern 'Path="[^"]*/(bin|obj)/' -Quiet) {
+            throw "Scrap.slnx references generated bin/obj files."
+          }
+
       - name: Set up .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
