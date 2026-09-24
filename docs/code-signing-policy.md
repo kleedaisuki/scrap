@@ -39,7 +39,7 @@ Release CI must then verify each Authenticode chain, timestamp, MSI install/unin
 
 Scrap does not transfer user data to other networked systems. The desktop app, CLI, and daemon communicate locally; records remain on the user's machine. A network transfer occurs only when the user separately opens the product website, source repository, or release download in a browser.
 
-The Windows installer makes and owns only these integration changes: its program files, Start Menu shortcut, Add/Remove Programs registration, and user `PATH` entry. The download and release surfaces must disclose them before a signed build is requested. Normal uninstall removes those integrations but preserves `%USERPROFILE%\.scrap`; no uninstall path silently deletes user records. An installer-native summary remains a readiness item if the signing-provider review considers the linked pre-download disclosure insufficient.
+The Windows installer makes and owns only these integration changes: its program files, Start Menu and Desktop shortcuts, Add/Remove Programs registration, and user `PATH` entry. The download and release surfaces must disclose them before a signed build is requested. Normal uninstall removes those integrations but preserves `%USERPROFILE%\.scrap`; no uninstall path silently deletes user records. An installer-native summary remains a readiness item if the signing-provider review considers the linked pre-download disclosure insufficient.
 
 ## Incident response
 

@@ -22,7 +22,7 @@
 `installer/Scrap.Installer.Windows` 使用 WiX Toolset 生成真正的当前用户 MSI：
 
 - 安装 GUI、CLI 与 daemon 到用户的 Local AppData，不请求管理员权限；
-- 提供产品图标、开始菜单入口以及“应用和功能”卸载入口；
+- 提供产品图标、开始菜单和桌面快捷方式，以及“应用和功能”卸载入口；
 - 把安装目录加入当前用户 PATH，新终端会获得更新；
 - 使用稳定 `UpgradeCode` 支持 major upgrade，并阻止旧版本覆盖新版本；
 - MSI component 只拥有程序文件、快捷方式与自己写入的注册表/PATH 项；用户数据 `~/.scrap` 从不属于 MSI component，升级和普通卸载都不会删除它。
@@ -84,7 +84,7 @@ Store 数字版本独立记录在 `installer/Scrap.Installer.Store/StoreVersion.
 
 脚本只在仓库 `.temp/wack/` 保存可审阅报告与候选 hash，不提权、不安装证书；缺少/不完整报告、工具失败或任何必需测试未通过都会明确失败。若 WACK 汇总为 `WARNING` 但所有非通过项均明确标记为 optional，可人工审阅后显式添加 `-AllowOptionalWarnings`；脚本仍会醒目标出“不是 PASS”。WACK 需要不被中断的交互式 Windows 用户会话，仍不能替代 Partner Center ingestion。
 
-当前 `1.0.2.0` / `0.2.0-preview.8` 生产候选来自 [GitHub Actions run 34945022858](https://github.com/kleedaisuki/scrap/actions/runs/34945022858) 的 artifact `10386584492`，MSIX SHA-256 为 `67dccedacc39c3207384526cc9592d577ec2aae5abb9be36fcddb1c5cc9ed989`。下载后对**同一文件**运行 WACK：完整运行 24 项测试、`OVERALL_RESULT=PASS`、所有必需项通过；保存的 XML 报告 SHA-256 为 `8d0295891d55609579dc91a7cb8d1effc0403040ee0836f54ff1645e27362a86`。可选的 **Blocked executables** 静态分析仍因 self-contained .NET 载荷包含进程启动 API 与运行时工具名字符串而报 `FAIL`；脚本不会隐藏该项。此前的 DPI awareness warning 已通过 GUI executable 的 Per-Monitor V2 manifest 修复并在本次报告中通过。
+历史 `1.0.2.0` / `0.2.0-preview.8` 生产候选来自 [GitHub Actions run 34945022858](https://github.com/kleedaisuki/scrap/actions/runs/34945022858) 的 artifact `10386584492`，MSIX SHA-256 为 `67dccedacc39c3207384526cc9592d577ec2aae5abb9be36fcddb1c5cc9ed989`。下载后对**同一文件**运行 WACK：完整运行 24 项测试、`OVERALL_RESULT=PASS`、所有必需项通过；保存的 XML 报告 SHA-256 为 `8d0295891d55609579dc91a7cb8d1effc0403040ee0836f54ff1645e27362a86`。可选的 **Blocked executables** 静态分析仍因 self-contained .NET 载荷包含进程启动 API 与运行时工具名字符串而报 `FAIL`；脚本不会隐藏该项。此前的 DPI awareness warning 已通过 GUI executable 的 Per-Monitor V2 manifest 修复并在该次报告中通过。当前版本计数器已是 `1.0.3.0`；上述报告不能证明新版候选通过 WACK。
 
 ## 3. Linux 与 macOS 安装
 
@@ -133,7 +133,7 @@ push vX.Y.Z tag
 
 Tag smoke 在全部 RID 上验证 CLI 与 daemon 生命周期，并在 Windows DPAPI 环境验证 scope/record CRUD。Linux lifecycle smoke 不冒充 Secret Service integration test；正式 Linux 业务验证需要用户会话 D-Bus 与已解锁 Secret Service。
 
-Actions 使用完整 commit SHA 固定，普通任务只有 `contents: read`，只有最终 Release job 使用 `contents: write`。Release 重跑当前会对同名资产执行 `--clobber`；因此恢复失败发布时必须确认 tag 和源码完全一致。若仓库未来启用 immutable releases，应改为 draft assemble-and-publish，不能继续依赖覆盖已发布资产。
+Actions 使用完整 commit SHA 固定，普通任务只有 `contents: read`，只有最终 Release job 使用 `contents: write`。Release 重跑当前会对同名资产执行 `--clobber`，并从本次签名状态重建 Release notes 的 Windows 信任状态节；因此恢复失败发布时必须确认 tag 和源码完全一致。若仓库未来启用 immutable releases，应改为 draft assemble-and-publish，不能继续依赖覆盖已发布资产。
 
 创建发布：
 
